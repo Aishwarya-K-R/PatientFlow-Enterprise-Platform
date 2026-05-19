@@ -16,12 +16,13 @@ namespace Patient_Management_System.Services
 
         public async Task<Dictionary<int, string>> GetPatientContextDictAsync(List<int> patientIds)
         {
+
+            // Not selecting patient fields to avoid accidental inclusion of PHI
             var query = _db.Patients
                 .Where(p => patientIds.Contains(p.Id))
                 .Select(p => new
                 {
                     p.Id,
-                    p.Name,
                     p.DateOfBirth,
                     BillingAccountId = _db.Billings
                         .Where(b => b.PatientId == p.Id)
@@ -36,7 +37,9 @@ namespace Patient_Management_System.Services
             {
                 var age = CalculateAge(d.DateOfBirth);
                 var maskedBilling = Mask(d.BillingAccountId);
-                dict[d.Id] = $"Patient: {d.Name}, Age: {age}, BillingAccountId: {maskedBilling}";
+                // Appending pseudonym to avoid PHI leakage
+                var pseudonym = $"P-{d.Id:D5}";  
+                dict[d.Id] = $"Patient: {pseudonym}, Age: {age}, BillingAccountId: {maskedBilling}";
             }
 
             return dict;

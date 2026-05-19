@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Patient_Management_System.Models;
@@ -21,11 +23,15 @@ namespace Patient_Management_System.Controllers
         private readonly AI _settings = settings.Value;
         private readonly ILogger<AIController> _logger = logger;
 
+        [Authorize(Roles = "ADMIN")]
         [HttpPost("ask")]
-        public async Task<IActionResult> Ask([FromBody] string request)
+        public async Task<IActionResult> Ask([FromBody] AskRequest body)
         {
-            if (string.IsNullOrWhiteSpace(request))
-                return BadRequest("Question is required");
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            // Local alias so the rest of the method reads as before.
+            var request = body.Question;
 
             var updatedIds = await _redis.GetUpdatedPatientsAsync();
             var cachedContext = await _redis.GetAllPatientContextsAsync();
@@ -83,10 +89,10 @@ namespace Patient_Management_System.Controllers
             var answer = await _llm.AskAsync(prompt);
             var readableAnswer = answer.Replace("\\n", Environment.NewLine);
 
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "unknown";
             _logger.LogInformation(
-                "AI Question: {Question}\nAI Answer:\n{Answer}",
-                request,
-                readableAnswer
+                "AUDIT ai-query | userId={UserId} | question={Question} | answerChars={AnswerChars}",
+                userId, request, readableAnswer.Length
             );
 
             return Content(readableAnswer, "text/plain");

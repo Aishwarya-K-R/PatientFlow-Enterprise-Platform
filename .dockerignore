@@ -1,0 +1,65 @@
+# =============================================================================
+# .dockerignore for PatientFlow-Platform
+# =============================================================================
+# Patterns here are excluded from the Docker BUILD CONTEXT — the tarball Docker
+# sends to the daemon when you run `docker build`. Smaller context = faster
+# builds + no accidental secrets / junk in your image layers.
+# =============================================================================
+
+# Version control
+.git/
+.gitignore
+.gitattributes
+
+# .NET build outputs — Dockerfile does its own `dotnet restore && publish`
+**/bin/
+**/obj/
+**/publish/
+*.dll
+*.exe
+*.pdb
+
+# IDE files — irrelevant inside containers
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Tests — not needed in runtime images (CI will run tests separately)
+PMS.Tests/
+
+# Local runtime data
+db-data/
+postgres-data/
+logs/
+*.log
+
+# Secrets — never bake into an image
+.env
+.env.*
+!.env.example
+*.pfx
+*.key
+*.pem
+appsettings.Production.json
+appsettings.Local.json
+
+# Local Kubernetes manifests / compose files (delivered separately)
+Kubernetes/
+docker-compose*.yml
+
+# Documentation / images
+README.md
+*.md
+docs/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# CI configuration (only relevant to GitHub Actions runner)
+.github/
+
+# Editor noise
+*.swp

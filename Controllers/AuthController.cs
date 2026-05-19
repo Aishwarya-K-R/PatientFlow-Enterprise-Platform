@@ -24,19 +24,19 @@ namespace Patient_Management_System.Controllers
 
         [EnableRateLimiting("loginLimiter")]
         [HttpPost("login")]
-        public async Task<ActionResult> Login(User user)
+        public async Task<ActionResult<LoginResponse>> Login(User user)
         {
             if(!ModelState.IsValid)
             {
                 return BadRequest(ModelState);
             }
 
-            var token = await _authService.Login(user);
-            if(token == null)
+            var response = await _authService.Login(user);
+            if (response == null)
             {
-                return Unauthorized("Invalid token!!!");
+                return Unauthorized();
             }
-            return Ok("Login successful !!! Token: " + token);
+            return Ok(response);
         }
     }
 }

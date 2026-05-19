@@ -58,6 +58,7 @@ builder.Services.AddScoped<ContextService>();
 builder.Services.AddSingleton<RedisService>();
 builder.Services.AddHttpClient<LLMService>();
 builder.Services.AddScoped<AuthService>();
+builder.Services.AddScoped<IPatientRepository, PatientRepository>();
 builder.Services.AddScoped<PatientService>();
 builder.Services.AddScoped<BillingAccountService>();
 

@@ -4,6 +4,9 @@ namespace Patient_Management_System.Services
 {
     public class RedisService(IConnectionMultiplexer redis, IConfiguration config)
     {
+        // Cache key versioning is done here to ensure PHI is not accidentally exposed due to old cached data after code changes.
+        private const string ContextKeyPrefix = "patient-context-v2:";
+
         private readonly IDatabase _db = redis.GetDatabase();
         private readonly string _updatedPatientsKey = config["RedisKeys:UpdatedPatientsKey"];
 
@@ -14,7 +17,7 @@ namespace Patient_Management_System.Services
 
         public async Task ClearPatientContextAsync(int patientId)
         {
-            await _db.KeyDeleteAsync($"patient-context:{patientId}");
+            await _db.KeyDeleteAsync($"{ContextKeyPrefix}{patientId}");
             await _db.SetRemoveAsync(_updatedPatientsKey, patientId);
         }
 
@@ -31,13 +34,13 @@ namespace Patient_Management_System.Services
 
         public async Task SetPatientContextAsync(int patientId, string context)
         {
-            await _db.StringSetAsync($"patient-context:{patientId}", context);
+            await _db.StringSetAsync($"{ContextKeyPrefix}{patientId}", context);
         }
 
         public async Task<Dictionary<int, string>> GetAllPatientContextsAsync()
         {
             var server = _db.Multiplexer.GetServer(_db.Multiplexer.GetEndPoints()[0]);
-            var keys = server.Keys(pattern: "patient-context:*").ToArray();
+            var keys = server.Keys(pattern: $"{ContextKeyPrefix}*").ToArray();
 
             var dict = new Dictionary<int, string>();
             foreach (var key in keys)

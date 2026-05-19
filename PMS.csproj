@@ -54,4 +54,18 @@
     <Protobuf Include="Protos/*.proto" GrpcServices="Both" />
   </ItemGroup>
 
+  <!--
+    Exclude the test project from this project's implicit globs.
+    The .NET SDK auto-includes every .cs under the project root, which would
+    otherwise sweep PMS.Tests/**/*.cs (including auto-generated AssemblyInfo)
+    into this assembly and cause duplicate-attribute build errors.
+    Phase 1 plan: move PMS.Tests to a sibling directory and delete this block.
+  -->
+  <ItemGroup>
+    <Compile Remove="PMS.Tests/**" />
+    <Content Remove="PMS.Tests/**" />
+    <EmbeddedResource Remove="PMS.Tests/**" />
+    <None Remove="PMS.Tests/**" />
+  </ItemGroup>
+
 </Project>
