@@ -212,31 +212,7 @@ Simulated a fresh `git clone` experience: wiped all `bin/obj`, ran `dotnet resto
 
 ---
 
-## 4. What we deferred and why
-
-These were noticed during Phase 0 work but explicitly *not* fixed, to keep the phase's scope tight and avoid mixing bug-fixes with refactors in the same commit:
-
-| Deferred item | Phase |
-|---|---|
-| Repositories for `User`, `Billing` | 1 (microservices split — they'll get their own services + repos) |
-| Nullable warnings (15 total) | 1 (sweep during restructure) |
-| Namespace cleanup (`Patient_Management_System` → `PMS.*`) | 1 |
-| Outbox pattern + idempotent producers + DLQs | 2–3 |
-| Refresh tokens, account lockout, partitioned rate limiter | 4 |
-| TLS everywhere, column-level PHI encryption | 5 |
-| OpenTelemetry, structured logging fix, Loki | 6 |
-| Testcontainers for integration tests | 7 |
-| Migration Jobs, K8s probes, NetworkPolicy | 8 |
-| CI runs `dotnet test`, image scan, signing | 9 |
-| pgvector + proper RAG + in-cluster Ollama | 10 |
-| MCP server | 11 |
-| HIPAA control mapping, threat model, runbooks | 12 |
-
-The roadmap in `memory/project_patientflow_roadmap.md` tracks the full plan.
-
----
-
-## 5. Top 10 takeaways for portfolio interviews
+## 4. Top 10 takeaways for portfolio interviews
 
 1. **Phase 0 is hygiene; Phase 1+ is architecture.** A clean foundation is non-negotiable before any restructure.
 2. **`.gitignore` and `git rm --cached` are different operations.** The first blocks future tracking; the second removes already-tracked files from the index.
@@ -251,7 +227,7 @@ The roadmap in `memory/project_patientflow_roadmap.md` tracks the full plan.
 
 ---
 
-## 6. Verification at end of Phase 0
+## 5. Verification at end of Phase 0
 
 | Check | Result |
 |---|---|
@@ -261,11 +237,3 @@ The roadmap in `memory/project_patientflow_roadmap.md` tracks the full plan.
 | JWT secret in any tracked file | ✅ Not present |
 | Tracked file count | ✅ 1948 → 79 |
 | All Phase 0 critical defects resolved | ✅ |
-
----
-
-## 7. What's next — Phase 1
-
-**Microservices split.** Restructure the single `PMS.csproj` into per-service projects (`PMS.Gateway`, `PMS.Auth`, `PMS.Patient`, `PMS.Billing`, `PMS.AI`) + shared `PMS.Contracts` + `PMS.Common`. Each service gets its own `Program.cs`, its own `DbContext`, its own image. Migrations move to a K8s Job. Remove the gRPC self-call. Real microservices, not a monolith in 5 containers.
-
-See `memory/project_patientflow_roadmap.md` for the full 12-phase plan.
