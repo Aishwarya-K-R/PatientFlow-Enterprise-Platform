@@ -1,8 +1,10 @@
 using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Patient_Management_System.Models;
 using Xunit;
-using System.Net.Http.Json;
 
 public class PatientTests(WebApplicationFactory<Program> factory) : IClassFixture<WebApplicationFactory<Program>>
 {
@@ -25,13 +27,12 @@ public class PatientTests(WebApplicationFactory<Program> factory) : IClassFixtur
             password = "PMS"
         });
 
-        var responseString = await loginResponse.Content.ReadAsStringAsync();
-        var token = responseString.Split("Token: ")[1].Trim();
+        // Parse the typed JSON payload instead of regexing a string.
+        var payload = await loginResponse.Content.ReadFromJsonAsync<LoginResponse>();
+        payload.Should().NotBeNull("login should return a LoginResponse JSON body");
+        var token = payload!.AccessToken;
 
-        Console.WriteLine($"Received Token: {token}");
-
-        _client.DefaultRequestHeaders.Authorization =
-            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         var response = await _client.GetAsync("/api/patients");
 

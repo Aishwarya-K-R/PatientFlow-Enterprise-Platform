@@ -1,0 +1,100 @@
+# =============================================================================
+# .gitignore for PatientFlow-Platform (.NET 8 microservices)
+# =============================================================================
+# Patterns here tell git NEVER to track matching files.
+# Already-tracked files are NOT removed by this file alone — use `git rm --cached`.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# .NET build outputs
+# -----------------------------------------------------------------------------
+# `bin/` and `obj/` are produced by `dotnet build/restore`. Per-machine,
+# per-configuration. Never commit — they'll always regenerate.
+**/bin/
+**/obj/
+
+# Compiled binaries that might leak from elsewhere
+*.dll
+*.exe
+*.pdb
+*.cache
+
+# Build / publish output folders
+**/publish/
+**/PublishProfiles/*.user
+
+# -----------------------------------------------------------------------------
+# IDE & editor metadata (machine-specific, sometimes leaks usernames/paths)
+# -----------------------------------------------------------------------------
+.vs/
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.swp
+
+# -----------------------------------------------------------------------------
+# Test results, coverage reports
+# -----------------------------------------------------------------------------
+TestResults/
+**/coverage*.xml
+**/coverage*.json
+**/lcov.info
+*.trx
+
+# -----------------------------------------------------------------------------
+# NuGet packages cache (restored on demand)
+# -----------------------------------------------------------------------------
+*.nupkg
+**/packages/
+!**/packages/build/
+
+# -----------------------------------------------------------------------------
+# Runtime data — must NEVER be committed
+# -----------------------------------------------------------------------------
+# Postgres bind-mount from docker-compose. Binary files; may contain real data.
+db-data/
+postgres-data/
+
+# Serilog log files
+logs/
+*.log
+
+# -----------------------------------------------------------------------------
+# Secrets — must NEVER be committed
+# -----------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.key
+*.pem
+appsettings.Production.json
+appsettings.Local.json
+secrets.yml
+!secrets.example.yml
+
+# .NET user-secrets (stored outside repo but doubly defensive)
+**/usersecrets/
+
+# -----------------------------------------------------------------------------
+# OS-generated files
+# -----------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# -----------------------------------------------------------------------------
+# Docker volume mounts and local data
+# -----------------------------------------------------------------------------
+*.pid
+.docker/
+
+# Note: Generated protobuf .cs files live under obj/ and are already ignored.
