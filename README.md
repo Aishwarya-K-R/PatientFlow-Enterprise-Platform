@@ -19,7 +19,9 @@ It simulates how **modern healthcare platforms** handle authentication, patient 
 
 ## 🏗️ Architecture
 
-<img width="750" height="750" alt="ChatGPT Image Mar 23, 2026, 10_49_50 AM" src="https://github.com/user-attachments/assets/0b57071c-c1ef-454b-b869-2490c2be0bc1" />
+<p align="center">
+  <img width="800" alt="PatientFlow Platform — high-level architecture diagram showing API Gateway, Auth, Patient, Billing, and AI microservices connected via Kafka, gRPC, Postgres, and Redis" src="https://github.com/user-attachments/assets/0b57071c-c1ef-454b-b869-2490c2be0bc1" />
+</p>
 
 
 ## 🔧 Core Components
@@ -123,23 +125,41 @@ ollama pull llama3**
 8. Run Kubernetes and accesss the services using domain name (based on the setup): **kubectl apply -f Kubernetes/**
   
 
-## 📊 Event Streaming via Apacke Kafka
+## 📊 Event Streaming via Apache Kafka
 
 ### 🟢 Patient Service: Performs CRUD operations on patients and publishes events to Kafka   
-<img width="700" height="700" alt="image" src="https://github.com/user-attachments/assets/f73bba52-fef0-4efa-857f-7ef2410a28ec" />
- 
+
+<p align="center">
+  <img width="800" alt="Patient Service — Kafka UI screenshot showing patient-created, patient-updated, and patient-deleted topic events" src="https://github.com/user-attachments/assets/f73bba52-fef0-4efa-857f-7ef2410a28ec" />
+</p>
+
 ### 🔵 Billing Service: Consumes patient create events, creates billing accounts, and publishes billing events to Kafka  
-<img width="700" height="700" alt="image" src="https://github.com/user-attachments/assets/60e5041c-5839-439e-b83e-db15a614e457" />
+
+<p align="center">
+  <img width="800" alt="Billing Service — Kafka UI screenshot showing billing-created events published in response to patient-created events" src="https://github.com/user-attachments/assets/60e5041c-5839-439e-b83e-db15a614e457" />
+</p>
 
 ### 🟢 AI Service: Consumes patient and billing events to update Redis cache for RAG-powered LLM responses  
-<img width="700" height="700" alt="image" src="https://github.com/user-attachments/assets/27324373-23ab-4366-a565-1e8eebbb57f3" />
+
+<p align="center">
+  <img width="800" alt="AI Service — Kafka UI screenshot showing the AI service consuming patient and billing topics to refresh Redis context for the LLM" src="https://github.com/user-attachments/assets/27324373-23ab-4366-a565-1e8eebbb57f3" />
+</p>
 
 
 ## 📊 Monitoring & Observability Stack  
 
 ### 🔵 Prometheus: Collects and aggregates real-time metrics across microservices for deep system observability  
-<img width="700" height="700" alt="image" src="https://github.com/user-attachments/assets/cc54c279-6d43-42c8-af33-5c21153f7fb4" />
-<img width="700" height="700" alt="image" src="https://github.com/user-attachments/assets/519d36f9-1c5a-4d4d-95eb-bf52d752b907" />
-  
+
+<p align="center">
+  <img width="800" alt="Prometheus targets dashboard — all microservices (auth, patient, billing, AI, gateway) reporting UP" src="https://github.com/user-attachments/assets/cc54c279-6d43-42c8-af33-5c21153f7fb4" />
+</p>
+
+<p align="center">
+  <img width="800" alt="Prometheus metrics query view — sample query showing HTTP request metrics across services" src="https://github.com/user-attachments/assets/519d36f9-1c5a-4d4d-95eb-bf52d752b907" />
+</p>
+
 ### 🟢 Grafana: Transforms metrics into powerful visual dashboards for real-time insights and performance monitoring
-<img width="800" height="800" alt="image" src="https://github.com/user-attachments/assets/2c53866d-f42f-4b51-8399-1974b614ce09" />
+
+<p align="center">
+  <img width="800" alt="Grafana dashboard — PatientFlow microservices metrics including request rate, latency, and error rate panels" src="https://github.com/user-attachments/assets/2c53866d-f42f-4b51-8399-1974b614ce09" />
+</p>
