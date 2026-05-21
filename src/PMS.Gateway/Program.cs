@@ -1,30 +1,39 @@
+using Serilog;
+using Prometheus;
+using PatientFlow.Gateway.Kafka;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+builder.Configuration
+    .AddJsonFile("appsettings.json", optional: false)
+    .AddEnvironmentVariables();
+
+builder.Services
+    .AddReverseProxy()
+    .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
+
+builder.Services.AddSingleton<KafkaTopicCreator>();
+
+builder.Host.UseSerilog((context, config) =>
+    config.ReadFrom.Configuration(context.Configuration));
+
+builder.Services.AddHealthChecks();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
-
-app.UseHttpsRedirection();
-
-var summaries = new[]
+// Create Kafka topics on startup
+using (var scope = app.Services.CreateScope())
 {
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
+    var topicCreator = scope.ServiceProvider.GetRequiredService<KafkaTopicCreator>();
+    await topicCreator.CreateTopicsAsync();
+}
 
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-});
+app.UseHttpMetrics();
+app.MapMetrics();
+
+app.MapHealthChecks("/health");
+
+app.MapReverseProxy();
 
 app.Run();
 
