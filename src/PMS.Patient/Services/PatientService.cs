@@ -12,6 +12,7 @@ public class PatientService(
     IMemoryCache memoryCache,
     IDistributedCache redisCache,
     KafkaProducer kafkaProducer,
+    BillingGrpcClient billingGrpcClient,
     ILogger<PatientService> logger,
     IConfiguration config)
 {
@@ -19,6 +20,7 @@ public class PatientService(
     private readonly IMemoryCache _memoryCache = memoryCache;
     private readonly IDistributedCache _redisCache = redisCache;
     private readonly KafkaProducer _kafkaProducer = kafkaProducer;
+    private readonly BillingGrpcClient _billingGrpcClient = billingGrpcClient;
     private readonly IConfiguration _config = config;
     private readonly ILogger<PatientService> _logger = logger;
 
@@ -100,6 +102,20 @@ public class PatientService(
         };
 
         await _repo.AddAsync(newPatient);
+
+        // Synchronous gRPC call to Billing service
+        try
+        {
+            _logger.LogInformation("Creating billing account via gRPC for Patient {PatientId}", newPatient.Id);
+            await _billingGrpcClient.CreateBillingAccountAsync(newPatient.Id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to create billing account via gRPC for Patient {PatientId}", newPatient.Id);
+            // Continue - Kafka consumer will retry if gRPC fails
+        }
+
+        // Publish Kafka event for reliability/audit
         await _kafkaProducer.PublishAsync(_config["Kafka:PatientCreatedTopic"]!, new { PatientId = newPatient.Id });
 
         return newPatient;
