@@ -1,4 +1,3 @@
-using Microsoft.EntityFrameworkCore;
 using PatientFlow.Billing.Data;
 using PatientFlow.Billing.Models;
 using PatientFlow.Common.Kafka;
@@ -18,18 +17,7 @@ public class BillingAccountService(
 
     public async Task<BillingAccount> CreateAccountAsync(int patientId)
     {
-        // Check if billing account already exists (idempotency check)
-        var existing = await _context.BillingAccounts
-            .FirstOrDefaultAsync(b => b.PatientId == patientId);
-
-        if (existing != null)
-        {
-            _logger.LogInformation("Billing account {AccountId} already exists for PatientId {PatientId}. Returning existing account.", 
-                existing.AccountId, patientId);
-            return existing;
-        }
-
-        _logger.LogInformation("Creating new billing account for PatientId {PatientId}", patientId);
+        _logger.LogInformation("Creating billing account for PatientId {PatientId}", patientId);
 
         var billing = new BillingAccount
         {

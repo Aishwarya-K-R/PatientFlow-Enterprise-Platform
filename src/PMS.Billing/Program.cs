@@ -4,7 +4,6 @@ using Prometheus;
 using PatientFlow.Billing.Data;
 using PatientFlow.Billing.Services;
 using PatientFlow.Billing.Grpc;
-using PatientFlow.Billing.Kafka;
 using PatientFlow.Common.Exceptions;
 using PatientFlow.Common.Kafka;
 
@@ -19,7 +18,6 @@ builder.Services.AddDbContext<BillingDbContext>(options =>
 
 builder.Services.AddScoped<BillingAccountService>();
 builder.Services.AddSingleton<KafkaProducer>();
-builder.Services.AddHostedService<BillingKafkaConsumer>();
 
 builder.Host.UseSerilog((context, config) =>
     config.ReadFrom.Configuration(context.Configuration));
