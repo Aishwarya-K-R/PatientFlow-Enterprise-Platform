@@ -28,8 +28,8 @@ simulation without the cloud bill.
 | # | Phase | Status | Tag | Sessions | Est. cost |
 |---|---|---|---|---|---|
 | 0 | Foundation cleanup | ✅ Done | `v0.1-phase-0` | 1 | ~$30 |
-| 1 | Real microservices split | ⏳ Next | `v0.2-phase-1` | 2 | $30–60 |
-| 2 | Data ownership & validation | – | `v0.3-phase-2` | 2 | $20–40 |
+| 1 | Real microservices split | ✅ Done | `v0.2-phase-1` | 1 | – |
+| 2 | Data ownership & validation | ⏳ Next | `v0.3-phase-2` | 2 | $20–40 |
 | 3 | Event-driven reliability | – | `v0.4-phase-3` | 2 | $25–45 |
 | 4 | Security hardening | – | `v0.5-phase-4` | 2 | $25–45 |
 | 5 | TLS & PHI protection | – | `v0.6-phase-5` | 1–2 | $20–40 |
@@ -335,10 +335,11 @@ The 6-month timeline assumes ~$60/month of Claude budget allocated to PatientFlo
 
 ---
 
-## Status snapshot — last updated 2026-05-19
+## Status snapshot — last updated 2026-05-23
 
 - ✅ **Phase 0 complete** — tagged `v0.1-phase-0`, merged commit `20b0032`
-- ⏳ **Phase 1 queued** — start after June 1 when monthly budget resets
-- 📚 **13-day prep window (May 19 – June 1)** — front-load reading and tool setup so Phase 1 executes faster
+- ✅ **Phase 1 complete** — tagged `v0.2-phase-1`, merged commit `70879a6`
+  - Architectural deviation from plan: Billing's Kafka consumer removed; Patient calls Billing synchronously via gRPC (sync for strong consistency: patient must have billing account). Patient → Kafka → AI consumer flow kept async for RAG context updates. See retrospective for rationale.
+- ⏳ **Phase 2 queued** — data ownership, per-service schemas, FluentValidation, Outbox tables
 
-Next action: when ready, branch `phase-1-microservices` from `main` and begin Session A (solution scaffold + Contracts/Common projects).
+Next action: when ready, branch `phase-2-data-ownership` from `main` and start with per-service schema separation + FluentValidation.
