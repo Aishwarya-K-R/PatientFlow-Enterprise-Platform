@@ -1,0 +1,6 @@
+@PMS.AI_HostAddress = http://localhost:5107
+
+GET {{PMS.AI_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
