@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using PatientFlow.Common.Exceptions;
 
 namespace PatientFlow.Patient.Data;
 
@@ -54,13 +55,27 @@ public class PatientRepository(PatientDbContext db) : IPatientRepository
     public async Task<Models.Patient> AddAsync(Models.Patient patient)
     {
         _db.Patients.Add(patient);
-        await _db.SaveChangesAsync();
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (ex.InnerException?.Message.Contains("IX_Patients_Email_Unique") == true)
+        {
+            throw new DuplicateEmailException(patient.Email);
+        }
         return patient;
     }
 
     public async Task UpdateAsync(Models.Patient patient)
     {
-        await _db.SaveChangesAsync();
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (ex.InnerException?.Message.Contains("IX_Patients_Email_Unique") == true)
+        {
+            throw new DuplicateEmailException(patient.Email);
+        }
     }
 
     public async Task DeleteAsync(Models.Patient patient)
