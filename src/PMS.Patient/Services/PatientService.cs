@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
 using PatientFlow.Patient.Data;
+using PatientFlow.Patient.Models;
 using PatientFlow.Common.Exceptions;
 using PatientFlow.Common.Kafka;
 
@@ -101,7 +102,16 @@ public class PatientService(
             RegisteredDate = patient.RegisteredDate
         };
 
-        await _repo.AddAsync(newPatient);
+        // Create outbox message for Kafka event
+        var outboxMessage = new OutboxMessage
+        {
+            Topic = _config["Kafka:PatientCreatedTopic"]!,
+            Payload = JsonSerializer.Serialize(new { PatientId = newPatient.Id }),
+            CreatedAt = DateTime.UtcNow
+        };
+
+        // Save patient and outbox message in same transaction
+        await _repo.AddAsync(newPatient, outboxMessage);
 
         // Synchronous gRPC call to Billing service
         try
@@ -112,11 +122,8 @@ public class PatientService(
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to create billing account via gRPC for Patient {PatientId}", newPatient.Id);
-            // Continue - Kafka consumer will retry if gRPC fails
+            // Event in outbox will be published by background worker for retry
         }
-
-        // Publish Kafka event for reliability/audit
-        await _kafkaProducer.PublishAsync(_config["Kafka:PatientCreatedTopic"]!, new { PatientId = newPatient.Id });
 
         return newPatient;
     }
@@ -138,8 +145,15 @@ public class PatientService(
         existing.DateOfBirth = patient.DateOfBirth;
         existing.RegisteredDate = patient.RegisteredDate;
 
-        await _repo.UpdateAsync(existing);
-        await _kafkaProducer.PublishAsync(_config["Kafka:PatientUpdatedTopic"]!, new { PatientId = id });
+        // Create outbox message for Kafka event
+        var outboxMessage = new OutboxMessage
+        {
+            Topic = _config["Kafka:PatientUpdatedTopic"]!,
+            Payload = JsonSerializer.Serialize(new { PatientId = id }),
+            CreatedAt = DateTime.UtcNow
+        };
+
+        await _repo.UpdateAsync(existing, outboxMessage);
 
         InvalidateCaches(id);
         return existing;
@@ -149,8 +163,15 @@ public class PatientService(
     {
         var existing = await _repo.GetByIdAsync(id) ?? throw new PatientNotFoundException(id);
 
-        await _repo.DeleteAsync(existing);
-        await _kafkaProducer.PublishAsync(_config["Kafka:PatientDeletedTopic"]!, new { PatientId = id });
+        // Create outbox message for Kafka event
+        var outboxMessage = new OutboxMessage
+        {
+            Topic = _config["Kafka:PatientDeletedTopic"]!,
+            Payload = JsonSerializer.Serialize(new { PatientId = id }),
+            CreatedAt = DateTime.UtcNow
+        };
+
+        await _repo.DeleteAsync(existing, outboxMessage);
 
         InvalidateCaches(id);
     }

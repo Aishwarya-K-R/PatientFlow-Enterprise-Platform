@@ -32,6 +32,7 @@ builder.Services.AddScoped<IPatientRepository, PatientRepository>();
 builder.Services.AddScoped<PatientService>();
 builder.Services.AddSingleton<KafkaProducer>();
 builder.Services.AddSingleton<BillingGrpcClient>();
+builder.Services.AddHostedService<OutboxPublisherService>();
 
 builder.Host.UseSerilog((context, config) =>
     config.ReadFrom.Configuration(context.Configuration));

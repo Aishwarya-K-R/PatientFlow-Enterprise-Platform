@@ -52,9 +52,13 @@ public class PatientRepository(PatientDbContext db) : IPatientRepository
             (excludingId == null || p.Id != excludingId));
     }
 
-    public async Task<Models.Patient> AddAsync(Models.Patient patient)
+    public async Task<Models.Patient> AddAsync(Models.Patient patient, Models.OutboxMessage? outboxMessage = null)
     {
         _db.Patients.Add(patient);
+        if (outboxMessage != null)
+        {
+            _db.OutboxMessages.Add(outboxMessage);
+        }
         try
         {
             await _db.SaveChangesAsync();
@@ -66,8 +70,12 @@ public class PatientRepository(PatientDbContext db) : IPatientRepository
         return patient;
     }
 
-    public async Task UpdateAsync(Models.Patient patient)
+    public async Task UpdateAsync(Models.Patient patient, Models.OutboxMessage? outboxMessage = null)
     {
+        if (outboxMessage != null)
+        {
+            _db.OutboxMessages.Add(outboxMessage);
+        }
         try
         {
             await _db.SaveChangesAsync();
@@ -78,9 +86,13 @@ public class PatientRepository(PatientDbContext db) : IPatientRepository
         }
     }
 
-    public async Task DeleteAsync(Models.Patient patient)
+    public async Task DeleteAsync(Models.Patient patient, Models.OutboxMessage? outboxMessage = null)
     {
         _db.Patients.Remove(patient);
+        if (outboxMessage != null)
+        {
+            _db.OutboxMessages.Add(outboxMessage);
+        }
         await _db.SaveChangesAsync();
     }
 }

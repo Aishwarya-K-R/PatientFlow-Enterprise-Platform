@@ -18,6 +18,7 @@ builder.Services.AddDbContext<BillingDbContext>(options =>
 
 builder.Services.AddScoped<BillingAccountService>();
 builder.Services.AddSingleton<KafkaProducer>();
+builder.Services.AddHostedService<OutboxPublisherService>();
 
 builder.Host.UseSerilog((context, config) =>
     config.ReadFrom.Configuration(context.Configuration));

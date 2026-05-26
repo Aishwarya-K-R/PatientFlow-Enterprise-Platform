@@ -1,3 +1,4 @@
+using System.Text.Json;
 using PatientFlow.Billing.Data;
 using PatientFlow.Billing.Models;
 using PatientFlow.Common.Kafka;
@@ -26,12 +27,17 @@ public class BillingAccountService(
             Status = "ACTIVE"
         };
 
-        _context.BillingAccounts.Add(billing);
-        await _context.SaveChangesAsync();
+        // Create outbox message for Kafka event
+        var outboxMessage = new OutboxMessage
+        {
+            Topic = _config["Kafka:BillingCreatedTopic"]!,
+            Payload = JsonSerializer.Serialize(new { PatientId = patientId, AccountId = billing.AccountId }),
+            CreatedAt = DateTime.UtcNow
+        };
 
-        await _kafkaProducer.PublishAsync(
-            _config["Kafka:BillingCreatedTopic"]!, 
-            new { PatientId = patientId, AccountId = billing.AccountId });
+        _context.BillingAccounts.Add(billing);
+        _context.OutboxMessages.Add(outboxMessage);
+        await _context.SaveChangesAsync();
 
         _logger.LogInformation("Billing account {AccountId} created for PatientId {PatientId}", 
             billing.AccountId, patientId);
