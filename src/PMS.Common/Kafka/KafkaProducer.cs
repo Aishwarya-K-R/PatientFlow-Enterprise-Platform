@@ -27,4 +27,17 @@ public class KafkaProducer
             Value = json
         });
     }
+
+    /// <summary>
+    /// Publish a pre-serialized JSON string directly. Used by the Outbox
+    /// publisher to avoid deserializing-then-reserializing a payload that
+    /// is already valid JSON in the database.
+    /// </summary>
+    public async Task PublishRawAsync(string topic, string jsonPayload)
+    {
+        await _producer.ProduceAsync(topic, new Message<Null, string>
+        {
+            Value = jsonPayload
+        });
+    }
 }

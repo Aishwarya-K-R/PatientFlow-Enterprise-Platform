@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
 using PatientFlow.Patient.Data;
@@ -10,6 +11,7 @@ namespace PatientFlow.Patient.Services;
 
 public class PatientService(
     IPatientRepository repo,
+    PatientDbContext db,
     IMemoryCache memoryCache,
     IDistributedCache redisCache,
     KafkaProducer kafkaProducer,
@@ -18,6 +20,7 @@ public class PatientService(
     IConfiguration config)
 {
     private readonly IPatientRepository _repo = repo;
+    private readonly PatientDbContext _db = db;
     private readonly IMemoryCache _memoryCache = memoryCache;
     private readonly IDistributedCache _redisCache = redisCache;
     private readonly KafkaProducer _kafkaProducer = kafkaProducer;
@@ -102,30 +105,44 @@ public class PatientService(
             RegisteredDate = patient.RegisteredDate
         };
 
-        // Create outbox message for Kafka event
-        var outboxMessage = new OutboxMessage
-        {
-            Topic = _config["Kafka:PatientCreatedTopic"]!,
-            Payload = JsonSerializer.Serialize(new { PatientId = newPatient.Id }),
-            CreatedAt = DateTime.UtcNow
-        };
-
-        // Save patient and outbox message in same transaction
-        await _repo.AddAsync(newPatient, outboxMessage);
-
-        // Synchronous gRPC call to Billing service
+        // Saga: patient row + Billing gRPC call + outbox event must all succeed
+        // or all roll back. We open an explicit transaction so we can call gRPC
+        // AFTER the patient has an Id (post-SaveChanges) but BEFORE we commit.
+        using var tx = await _db.Database.BeginTransactionAsync();
         try
         {
+            // 1. Save patient — populates newPatient.Id from the database.
+            _db.Patients.Add(newPatient);
+            await _db.SaveChangesAsync();
+
+            // 2. Synchronous gRPC call to Billing. If this fails, the whole
+            //    transaction rolls back — no orphan patient row, no outbox event.
             _logger.LogInformation("Creating billing account via gRPC for Patient {PatientId}", newPatient.Id);
             await _billingGrpcClient.CreateBillingAccountAsync(newPatient.Id);
+
+            // 3. Now that the Id is real and gRPC succeeded, write the outbox event.
+            _db.OutboxMessages.Add(new OutboxMessage
+            {
+                Topic = _config["Kafka:PatientCreatedTopic"]!,
+                Payload = JsonSerializer.Serialize(new { PatientId = newPatient.Id }),
+                CreatedAt = DateTime.UtcNow
+            });
+            await _db.SaveChangesAsync();
+
+            await tx.CommitAsync();
+            return newPatient;
+        }
+        catch (DbUpdateException ex) when (ex.InnerException?.Message.Contains("IX_Patients_Email_Unique") == true)
+        {
+            await tx.RollbackAsync();
+            throw new DuplicateEmailException(patient.Email);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to create billing account via gRPC for Patient {PatientId}", newPatient.Id);
-            // Event in outbox will be published by background worker for retry
+            await tx.RollbackAsync();
+            _logger.LogError(ex, "Patient creation saga failed — rolled back. Patient {Email} not created.", patient.Email);
+            throw;
         }
-
-        return newPatient;
     }
 
     public async Task<Models.Patient> UpdatePatientAsync(int id, Models.Patient patient)

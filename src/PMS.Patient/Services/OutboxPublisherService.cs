@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using PatientFlow.Patient.Data;
 using PatientFlow.Common.Kafka;
@@ -63,8 +62,8 @@ public class OutboxPublisherService : BackgroundService
         {
             try
             {
-                var payload = JsonSerializer.Deserialize<object>(message.Payload);
-                await kafkaProducer.PublishAsync(message.Topic, payload!);
+                // Payload is already JSON — send it directly without re-serializing.
+                await kafkaProducer.PublishRawAsync(message.Topic, message.Payload);
 
                 message.IsPublished = true;
                 message.PublishedAt = DateTime.UtcNow;
