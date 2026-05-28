@@ -1,20 +1,20 @@
-version: '3.8'
-
 services:
+  # ===========================================================================
   # Infrastructure
+  # ===========================================================================
   postgres:
     image: postgres:16
     container_name: postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -61,7 +61,9 @@ services:
     networks:
       - patientflow-network
 
+  # ===========================================================================
   # Microservices
+  # ===========================================================================
   gateway:
     build:
       context: .
@@ -71,7 +73,7 @@ services:
     depends_on:
       - kafka
     ports:
-      - "5000:8080"
+      - "${GATEWAY_PORT}:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       Kafka__BootstrapServers: kafka:29092
@@ -91,13 +93,13 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "5001:8080"
+      - "${AUTH_PORT}:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=patientflow_auth;Username=postgres;Password=postgres
-      Jwt__Key: your-super-secret-jwt-key-min-32-chars-long-please-change-in-production
-      Jwt__Issuer: PatientFlow.Auth
-      Jwt__Audience: PatientFlow.Api
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${AUTH_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      Jwt__Key: ${JWT_SECRET}
+      Jwt__Issuer: ${JWT_ISSUER}
+      Jwt__Audience: ${JWT_AUDIENCE}
     networks:
       - patientflow-network
 
@@ -115,14 +117,14 @@ services:
       kafka:
         condition: service_started
     ports:
-      - "5002:8080"
+      - "${PATIENT_PORT}:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=patientflow_patient;Username=postgres;Password=postgres
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${PATIENT_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
       ConnectionStrings__RedisConnection: redis:6379
-      Jwt__Key: your-super-secret-jwt-key-min-32-chars-long-please-change-in-production
-      Jwt__Issuer: PatientFlow.Auth
-      Jwt__Audience: PatientFlow.Api
+      Jwt__Key: ${JWT_SECRET}
+      Jwt__Issuer: ${JWT_ISSUER}
+      Jwt__Audience: ${JWT_AUDIENCE}
       BillingService__Address: billing-service
       BillingService__Port: 8080
       Kafka__BootstrapServers: kafka:29092
@@ -141,10 +143,10 @@ services:
       kafka:
         condition: service_started
     ports:
-      - "5003:8080"
+      - "${BILLING_PORT}:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=patientflow_billing;Username=postgres;Password=postgres
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${BILLING_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
       Kafka__BootstrapServers: kafka:29092
     networks:
       - patientflow-network
@@ -159,15 +161,15 @@ services:
       redis:
         condition: service_healthy
     ports:
-      - "5004:8080"
+      - "${AI_PORT}:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__RedisConnection: redis:6379
-      Jwt__Key: your-super-secret-jwt-key-min-32-chars-long-please-change-in-production
-      Jwt__Issuer: PatientFlow.Auth
-      Jwt__Audience: PatientFlow.Api
-      AI__Endpoint: http://host.docker.internal:11434/api/generate
-      AI__Model: llama3.2
+      Jwt__Key: ${JWT_SECRET}
+      Jwt__Issuer: ${JWT_ISSUER}
+      Jwt__Audience: ${JWT_AUDIENCE}
+      AI__Endpoint: ${AI_ENDPOINT}
+      AI__Model: ${AI_MODEL}
     networks:
       - patientflow-network
 
