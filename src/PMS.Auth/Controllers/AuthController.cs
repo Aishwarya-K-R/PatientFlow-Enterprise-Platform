@@ -14,10 +14,6 @@ public class AuthController(AuthService authService) : ControllerBase
     [HttpPost("signup")]
     public async Task<ActionResult> Signup(SignupRequest request)
     {
-        if (!ModelState.IsValid)
-        {
-            return BadRequest(ModelState);
-        }
         await _authService.Signup(request);
         return Ok(new { message = "User registered successfully" });
     }
@@ -26,11 +22,6 @@ public class AuthController(AuthService authService) : ControllerBase
     [HttpPost("login")]
     public async Task<ActionResult<LoginResponse>> Login(LoginRequest request)
     {
-        if (!ModelState.IsValid)
-        {
-            return BadRequest(ModelState);
-        }
-
         var response = await _authService.Login(request);
         if (response == null)
         {

@@ -26,9 +26,6 @@ public class AIController(
     [HttpPost("ask")]
     public async Task<IActionResult> Ask([FromBody] AskRequest body)
     {
-        if (!ModelState.IsValid)
-            return BadRequest(ModelState);
-
         var request = body.Question;
 
         // Get patient context from Redis

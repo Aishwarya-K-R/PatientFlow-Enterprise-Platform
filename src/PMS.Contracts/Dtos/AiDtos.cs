@@ -1,5 +1,3 @@
-using System.ComponentModel.DataAnnotations;
-
 namespace PatientFlow.Contracts.Dtos;
 
 /// <summary>
@@ -8,7 +6,5 @@ namespace PatientFlow.Contracts.Dtos;
 /// </summary>
 public class AskRequest
 {
-    [Required(ErrorMessage = "Question is required")]
-    [StringLength(1000, ErrorMessage = "Question cannot exceed 1000 characters")]
     public string Question { get; set; } = string.Empty;
 }

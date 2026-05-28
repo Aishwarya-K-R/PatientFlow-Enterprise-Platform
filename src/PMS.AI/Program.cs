@@ -4,9 +4,12 @@ using Microsoft.IdentityModel.Tokens;
 using Serilog;
 using Prometheus;
 using StackExchange.Redis;
+using FluentValidation;
+using FluentValidation.AspNetCore;
 using PatientFlow.Contracts.Config;
 using PatientFlow.AI.Services;
 using PatientFlow.Common.Exceptions;
+using PatientFlow.Contracts.Validators;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -49,6 +52,9 @@ builder.Services.AddAuthentication(options =>
         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
     };
 });
+
+builder.Services.AddFluentValidationAutoValidation();
+builder.Services.AddValidatorsFromAssemblyContaining<AskRequestValidator>();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();

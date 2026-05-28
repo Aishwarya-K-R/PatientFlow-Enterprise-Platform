@@ -29,7 +29,7 @@ simulation without the cloud bill.
 |---|---|---|---|---|---|
 | 0 | Foundation cleanup | ✅ Done | `v0.1-phase-0` | 1 | ~$30 |
 | 1 | Real microservices split | ✅ Done | `v0.2-phase-1` | 1 | – |
-| 2 | Data ownership & validation | ⏳ Next | `v0.3-phase-2` | 2 | $20–40 |
+| 2 | Data ownership & validation | ✅ Done | `v0.3-phase-2` | 2 | $20–40 |
 | 3 | Event-driven reliability | – | `v0.4-phase-3` | 2 | $25–45 |
 | 4 | Security hardening | – | `v0.5-phase-4` | 2 | $25–45 |
 | 5 | TLS & PHI protection | – | `v0.6-phase-5` | 1–2 | $20–40 |
@@ -44,7 +44,7 @@ simulation without the cloud bill.
 
 ---
 
-## Phase 0 — Foundation Cleanup ✅ DONE
+## Phase 0 — Foundation Cleanup 
 
 **Goal:** Make the broken code base buildable, testable, and credibly secure from a clean clone. Stop the bleeding before doing surgery.
 

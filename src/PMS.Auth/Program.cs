@@ -4,10 +4,13 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
 using Prometheus;
+using FluentValidation;
+using FluentValidation.AspNetCore;
 using PatientFlow.Auth.Data;
 using PatientFlow.Auth.Services;
 using PatientFlow.Auth.Config;
 using PatientFlow.Common.Exceptions;
+using PatientFlow.Contracts.Validators;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -45,6 +48,9 @@ builder.Services.AddAuthentication(options =>
 });
 
 builder.Services.AddRateLimiter(RateLimiterConfig.Configure);
+
+builder.Services.AddFluentValidationAutoValidation();
+builder.Services.AddValidatorsFromAssemblyContaining<SignupRequestValidator>();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();

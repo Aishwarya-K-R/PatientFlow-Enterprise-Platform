@@ -14,10 +14,6 @@ public class PatientController(PatientService patientService) : ControllerBase
     [HttpGet("patients")]
     public async Task<ActionResult> GetPatients(string search = "", string sortCol = "Id", string sortDir = "asc", int pageNo = 1, int pageSize = 10)
     {
-        if (!ModelState.IsValid)
-        {
-            return BadRequest(ModelState);
-        }
         var patients = await _patientService.GetPatientsAsync(search, sortCol, sortDir, pageNo, pageSize);
         if (patients == null || patients.Count == 0)
         {
@@ -30,10 +26,6 @@ public class PatientController(PatientService patientService) : ControllerBase
     [HttpGet("patient/{id}")]
     public async Task<ActionResult> GetPatientById(int id)
     {
-        if (!ModelState.IsValid)
-        {
-            return BadRequest(ModelState);
-        }
         var patient = await _patientService.GetPatientByIdAsync(id);
         return Ok(patient);
     }
@@ -42,10 +34,6 @@ public class PatientController(PatientService patientService) : ControllerBase
     [HttpPost("patient")]
     public async Task<ActionResult> CreatePatient(Models.Patient patient)
     {
-        if (!ModelState.IsValid)
-        {
-            return BadRequest(ModelState);
-        }
         var newPatient = await _patientService.CreatePatientAsync(patient);
         return CreatedAtAction(nameof(GetPatientById), new { id = newPatient.Id }, newPatient);
     }
@@ -54,10 +42,6 @@ public class PatientController(PatientService patientService) : ControllerBase
     [HttpPut("patient/{id}")]
     public async Task<ActionResult> UpdatePatient(int id, Models.Patient patient)
     {
-        if (!ModelState.IsValid)
-        {
-            return BadRequest(ModelState);
-        }
         var updatedPatient = await _patientService.UpdatePatientAsync(id, patient);
         return Ok(updatedPatient);
     }

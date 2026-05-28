@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using PatientFlow.Common.Exceptions;
 
 namespace PatientFlow.Patient.Data;
 
@@ -51,21 +52,47 @@ public class PatientRepository(PatientDbContext db) : IPatientRepository
             (excludingId == null || p.Id != excludingId));
     }
 
-    public async Task<Models.Patient> AddAsync(Models.Patient patient)
+    public async Task<Models.Patient> AddAsync(Models.Patient patient, Models.OutboxMessage? outboxMessage = null)
     {
         _db.Patients.Add(patient);
-        await _db.SaveChangesAsync();
+        if (outboxMessage != null)
+        {
+            _db.OutboxMessages.Add(outboxMessage);
+        }
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (ex.InnerException?.Message.Contains("IX_Patients_Email_Unique") == true)
+        {
+            throw new DuplicateEmailException(patient.Email);
+        }
         return patient;
     }
 
-    public async Task UpdateAsync(Models.Patient patient)
+    public async Task UpdateAsync(Models.Patient patient, Models.OutboxMessage? outboxMessage = null)
     {
-        await _db.SaveChangesAsync();
+        if (outboxMessage != null)
+        {
+            _db.OutboxMessages.Add(outboxMessage);
+        }
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (ex.InnerException?.Message.Contains("IX_Patients_Email_Unique") == true)
+        {
+            throw new DuplicateEmailException(patient.Email);
+        }
     }
 
-    public async Task DeleteAsync(Models.Patient patient)
+    public async Task DeleteAsync(Models.Patient patient, Models.OutboxMessage? outboxMessage = null)
     {
         _db.Patients.Remove(patient);
+        if (outboxMessage != null)
+        {
+            _db.OutboxMessages.Add(outboxMessage);
+        }
         await _db.SaveChangesAsync();
     }
 }

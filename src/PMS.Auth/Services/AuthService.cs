@@ -65,7 +65,15 @@ public class AuthService(AuthDbContext context, IConfiguration config)
         user.Password = passwordHasher.HashPassword(user, user.Password);
 
         _context.Users.Add(user);
-        await _context.SaveChangesAsync();
+
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (ex.InnerException?.Message.Contains("IX_Users_Email_Unique") == true)
+        {
+            throw new DuplicateEmailException(request.Email);
+        }
     }
 
     public async Task<LoginResponse?> Login(LoginRequest request)
