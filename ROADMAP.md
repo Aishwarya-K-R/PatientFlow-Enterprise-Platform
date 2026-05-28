@@ -332,14 +332,3 @@ PatientFlow.sln
 Approximately **1–2 sessions per phase**, no rush — depth of learning and credible portfolio quality are the priorities, not raw speed. Estimated total: **6 months of focused part-time work**.
 
 The 6-month timeline assumes ~$60/month of Claude budget allocated to PatientFlow, leaving the rest of an Enterprise $500/mo cap for company work.
-
----
-
-## Status snapshot — last updated 2026-05-23
-
-- ✅ **Phase 0 complete** — tagged `v0.1-phase-0`, merged commit `20b0032`
-- ✅ **Phase 1 complete** — tagged `v0.2-phase-1`, merged commit `70879a6`
-  - Architectural deviation from plan: Billing's Kafka consumer removed; Patient calls Billing synchronously via gRPC (sync for strong consistency: patient must have billing account). Patient → Kafka → AI consumer flow kept async for RAG context updates. See retrospective for rationale.
-- ⏳ **Phase 2 queued** — data ownership, per-service schemas, FluentValidation, Outbox tables
-
-Next action: when ready, branch `phase-2-data-ownership` from `main` and start with per-service schema separation + FluentValidation.
