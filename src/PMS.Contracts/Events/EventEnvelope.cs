@@ -45,4 +45,10 @@ public class EventEnvelope
     /// Service that produced this event.
     /// </summary>
     public string Source { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Additional metadata (e.g., RetryCount, LastRetryAt).
+    /// Used for retry logic and debugging.
+    /// </summary>
+    public Dictionary<string, string>? Metadata { get; set; }
 }

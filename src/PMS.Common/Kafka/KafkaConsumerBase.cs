@@ -1,5 +1,6 @@
 using Confluent.Kafka;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
@@ -8,23 +9,33 @@ using PatientFlow.Contracts.Events;
 namespace PatientFlow.Common.Kafka;
 
 /// <summary>
-/// Base class for reliable Kafka consumers with manual offset commit.
+/// Base class for reliable Kafka consumers with manual offset commit, retry topics, and DLQ.
 /// Prevents message loss by committing offsets only after successful processing.
+/// Failed messages are retried with exponential backoff, then sent to DLQ after max attempts.
 /// </summary>
 public abstract class KafkaConsumerBase<TPayload> : BackgroundService
 {
     private readonly IConsumer<Null, string> _consumer;
+    private readonly IProducer<Null, string> _producer;
     private readonly ILogger _logger;
     private readonly string _topic;
+    private readonly string _retryTopic;
+    private readonly string _dlqTopic;
+    private readonly int _maxRetryAttempts;
 
     protected KafkaConsumerBase(
         IConfiguration config,
+        IServiceProvider serviceProvider,
         ILogger logger,
         string topic,
-        string groupId)
+        string groupId,
+        int maxRetryAttempts = 3)
     {
         _logger = logger;
         _topic = topic;
+        _retryTopic = $"{topic}-retry";
+        _dlqTopic = $"{topic}-dlq";
+        _maxRetryAttempts = maxRetryAttempts;
 
         var consumerConfig = new ConsumerConfig
         {
@@ -51,6 +62,15 @@ public abstract class KafkaConsumerBase<TPayload> : BackgroundService
             EnablePartitionEof = false
         };
 
+        var producerConfig = new ProducerConfig
+        {
+            BootstrapServers = config["Kafka:BootstrapServers"],
+            Acks = Acks.All,
+            EnableIdempotence = true,
+            MessageSendMaxRetries = 10,
+            CompressionType = CompressionType.Snappy
+        };
+
         _consumer = new ConsumerBuilder<Null, string>(consumerConfig)
             .SetErrorHandler((_, error) =>
             {
@@ -67,6 +87,8 @@ public abstract class KafkaConsumerBase<TPayload> : BackgroundService
                     string.Join(", ", partitions.Select(p => $"{p.Topic}[{p.Partition.Value}]")));
             })
             .Build();
+
+        _producer = new ProducerBuilder<Null, string>(producerConfig).Build();
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -94,10 +116,16 @@ public abstract class KafkaConsumerBase<TPayload> : BackgroundService
                     var envelope = JsonSerializer.Deserialize<EventEnvelope>(consumeResult.Message.Value);
                     if (envelope == null)
                     {
-                        _logger.LogWarning("Failed to deserialize message envelope, skipping");
+                        _logger.LogWarning("Failed to deserialize message envelope, sending to DLQ");
+                        await SendToDLQAsync(consumeResult.Message.Value, "Failed to deserialize envelope");
                         _consumer.Commit(consumeResult);
                         continue;
                     }
+
+                    // Get retry count from envelope metadata (default to 0)
+                    var retryCount = envelope.Metadata?.ContainsKey("RetryCount") == true
+                        ? int.Parse(envelope.Metadata["RetryCount"])
+                        : 0;
 
                     // Process message (implemented by derived class)
                     var processed = await ProcessMessageAsync(envelope, stoppingToken);
@@ -106,16 +134,28 @@ public abstract class KafkaConsumerBase<TPayload> : BackgroundService
                     {
                         // SUCCESS: Commit offset (message will not be re-delivered)
                         _consumer.Commit(consumeResult);
-                        _logger.LogDebug("Committed offset {Offset} for {Topic}[{Partition}]",
-                            consumeResult.Offset.Value,
-                            consumeResult.Topic,
-                            consumeResult.Partition.Value);
+                        _logger.LogInformation("Successfully processed event {EventId} from {Topic}",
+                            envelope.EventId, consumeResult.Topic);
                     }
                     else
                     {
-                        // FAILURE: Don't commit (message will be re-delivered)
-                        _logger.LogWarning("Processing failed for message at offset {Offset}, will retry",
-                            consumeResult.Offset.Value);
+                        // FAILURE: Handle retry or DLQ
+                        if (retryCount >= _maxRetryAttempts)
+                        {
+                            // Max retries exceeded - send to DLQ
+                            _logger.LogError("Max retry attempts ({MaxRetries}) exceeded for event {EventId}, sending to DLQ",
+                                _maxRetryAttempts, envelope.EventId);
+                            await SendToDLQAsync(consumeResult.Message.Value, $"Max retries exceeded: {retryCount}");
+                            _consumer.Commit(consumeResult); // Commit to avoid infinite loop
+                        }
+                        else
+                        {
+                            // Send to retry topic with incremented count
+                            _logger.LogWarning("Processing failed for event {EventId} (attempt {Attempt}/{Max}), sending to retry topic",
+                                envelope.EventId, retryCount + 1, _maxRetryAttempts);
+                            await SendToRetryTopicAsync(envelope, retryCount + 1);
+                            _consumer.Commit(consumeResult); // Commit original message
+                        }
                     }
                 }
                 catch (ConsumeException ex)
@@ -138,7 +178,57 @@ public abstract class KafkaConsumerBase<TPayload> : BackgroundService
         {
             _consumer.Close();
             _consumer.Dispose();
+            _producer.Dispose();
             _logger.LogInformation("Kafka consumer stopped");
+        }
+    }
+
+    private async Task SendToRetryTopicAsync(EventEnvelope envelope, int retryCount)
+    {
+        try
+        {
+            // Add retry metadata
+            envelope.Metadata ??= new Dictionary<string, string>();
+            envelope.Metadata["RetryCount"] = retryCount.ToString();
+            envelope.Metadata["LastRetryAt"] = DateTime.UtcNow.ToString("O");
+            envelope.Metadata["OriginalTopic"] = _topic;
+
+            var messageJson = JsonSerializer.Serialize(envelope);
+            var message = new Message<Null, string> { Value = messageJson };
+
+            await _producer.ProduceAsync(_retryTopic, message);
+            _logger.LogInformation("Sent event {EventId} to retry topic (attempt {Attempt})",
+                envelope.EventId, retryCount);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send message to retry topic for event {EventId}",
+                envelope.EventId);
+        }
+    }
+
+    private async Task SendToDLQAsync(string originalMessage, string reason)
+    {
+        try
+        {
+            var dlqMessage = new
+            {
+                OriginalMessage = originalMessage,
+                Reason = reason,
+                Topic = _topic,
+                FailedAt = DateTime.UtcNow,
+                ConsumerGroup = _consumer.MemberId
+            };
+
+            var messageJson = JsonSerializer.Serialize(dlqMessage);
+            var message = new Message<Null, string> { Value = messageJson };
+
+            await _producer.ProduceAsync(_dlqTopic, message);
+            _logger.LogWarning("Sent message to DLQ: {Reason}", reason);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send message to DLQ");
         }
     }
 

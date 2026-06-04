@@ -5,25 +5,25 @@ using PatientFlow.Contracts.Events;
 namespace PatientFlow.AI.Services;
 
 /// <summary>
-/// Consumes patient events and updates Redis context for AI queries.
-/// Uses manual offset commit to prevent message loss.
+/// Consumes retry topic messages with exponential backoff delay.
+/// Re-processes failed messages after a delay before sending to main consumer.
 /// </summary>
-public class PatientEventsConsumer : KafkaConsumerBase<PatientCreatedEvent>
+public class PatientEventsRetryConsumer : KafkaConsumerBase<PatientCreatedEvent>
 {
     private readonly IServiceProvider _serviceProvider;
-    private readonly ILogger<PatientEventsConsumer> _logger;
+    private readonly ILogger<PatientEventsRetryConsumer> _logger;
 
-    public PatientEventsConsumer(
+    public PatientEventsRetryConsumer(
         IConfiguration config,
         IServiceProvider serviceProvider,
-        ILogger<PatientEventsConsumer> logger)
+        ILogger<PatientEventsRetryConsumer> logger)
         : base(
             config,
             serviceProvider,
             logger,
-            config["Kafka:PatientCreatedTopic"]!,
-            "ai-service-group",
-            maxRetryAttempts: 3)
+            $"{config["Kafka:PatientCreatedTopic"]}-retry",
+            "ai-service-retry-group",
+            maxRetryAttempts: 3) // Same max as main consumer
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
@@ -35,21 +35,31 @@ public class PatientEventsConsumer : KafkaConsumerBase<PatientCreatedEvent>
     {
         try
         {
-            _logger.LogInformation("Processing event {EventType} with ID {EventId}",
-                envelope.EventType, envelope.EventId);
+            // Get retry count from metadata
+            var retryCount = envelope.Metadata?.ContainsKey("RetryCount") == true
+                ? int.Parse(envelope.Metadata["RetryCount"])
+                : 1;
 
-            // Check for duplicates using EventId
+            // Exponential backoff: 2^retryCount seconds (2s, 4s, 8s)
+            var delaySeconds = Math.Pow(2, retryCount);
+            _logger.LogInformation("Retry consumer: Waiting {Delay}s before retry attempt {Attempt} for event {EventId}",
+                delaySeconds, retryCount, envelope.EventId);
+
+            await Task.Delay(TimeSpan.FromSeconds(delaySeconds), cancellationToken);
+
+            // Now process with same logic as main consumer
             using var scope = _serviceProvider.CreateScope();
             var redis = scope.ServiceProvider.GetRequiredService<RedisService>();
 
-            // Simple deduplication: Check if we've seen this EventId
+            // Check for duplicates
             var cacheKey = $"processed_event:{envelope.EventId}";
             var alreadyProcessed = await redis.GetPatientContextAsync(cacheKey);
 
             if (alreadyProcessed != null)
             {
-                _logger.LogInformation("Event {EventId} already processed, skipping", envelope.EventId);
-                return true; // Return true to commit offset (idempotent processing)
+                _logger.LogInformation("Retry consumer: Event {EventId} already processed during retry delay",
+                    envelope.EventId);
+                return true;
             }
 
             // Process based on event type
@@ -83,21 +93,22 @@ public class PatientEventsConsumer : KafkaConsumerBase<PatientCreatedEvent>
                     break;
 
                 default:
-                    _logger.LogWarning("Unknown event type: {EventType}", envelope.EventType);
-                    return true; // Skip unknown events
+                    _logger.LogWarning("Retry consumer: Unknown event type: {EventType}", envelope.EventType);
+                    return true;
             }
 
-            // Mark event as processed (with 7 day expiration)
+            // Mark as processed
             await redis.SetPatientContextAsync(cacheKey, "processed", TimeSpan.FromDays(7));
 
-            _logger.LogInformation("Successfully processed event {EventId}", envelope.EventId);
-            return true; // Success - commit offset
+            _logger.LogInformation("Retry consumer: Successfully processed event {EventId} on retry attempt {Attempt}",
+                envelope.EventId, retryCount);
+            return true;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error processing event {EventId}: {Message}",
+            _logger.LogError(ex, "Retry consumer: Error processing event {EventId}: {Message}",
                 envelope.EventId, ex.Message);
-            return false; // Failure - don't commit, will retry
+            return false; // Will go to DLQ after max retries in base class
         }
     }
 
@@ -105,19 +116,19 @@ public class PatientEventsConsumer : KafkaConsumerBase<PatientCreatedEvent>
     {
         var context = $"Patient {evt.PatientId} ({evt.Name}) created with email {evt.Email}";
         await redis.SetPatientContextAsync($"patient:{evt.PatientId}", context, TimeSpan.FromHours(24));
-        _logger.LogInformation("Updated context for patient {PatientId}", evt.PatientId);
+        _logger.LogInformation("Retry consumer: Updated context for patient {PatientId}", evt.PatientId);
     }
 
     private async Task HandlePatientUpdatedAsync(RedisService redis, PatientUpdatedEvent evt)
     {
         var context = $"Patient {evt.PatientId} ({evt.Name}) updated, email: {evt.Email}";
         await redis.SetPatientContextAsync($"patient:{evt.PatientId}", context, TimeSpan.FromHours(24));
-        _logger.LogInformation("Updated context for patient {PatientId}", evt.PatientId);
+        _logger.LogInformation("Retry consumer: Updated context for patient {PatientId}", evt.PatientId);
     }
 
     private async Task HandlePatientDeletedAsync(RedisService redis, PatientDeletedEvent evt)
     {
         await redis.DeletePatientContextAsync($"patient:{evt.PatientId}");
-        _logger.LogInformation("Removed context for deleted patient {PatientId}", evt.PatientId);
+        _logger.LogInformation("Retry consumer: Removed context for deleted patient {PatientId}", evt.PatientId);
     }
 }
