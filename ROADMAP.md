@@ -30,7 +30,7 @@ simulation without the cloud bill.
 | 0 | Foundation cleanup | ✅ Done | `v0.1-phase-0` | 1 | ~$30 |
 | 1 | Real microservices split | ✅ Done | `v0.2-phase-1` | 1 | – |
 | 2 | Data ownership & validation | ✅ Done | `v0.3-phase-2` | 2 | $20–40 |
-| 3 | Event-driven reliability | – | `v0.4-phase-3` | 2 | $25–45 |
+| 3 | Event-driven reliability | ✅ Done | `v0.4-phase-3` | 2 | $25–45 |
 | 4 | Security hardening | – | `v0.5-phase-4` | 2 | $25–45 |
 | 5 | TLS & PHI protection | – | `v0.6-phase-5` | 1–2 | $20–40 |
 | 6 | Observability | – | `v0.7-phase-6` | 2 | $30–50 |
@@ -122,20 +122,25 @@ PatientFlow.sln
 
 ---
 
-## Phase 3 — Event-driven reliability
+## Phase 3 — Event-driven reliability ✅
 
 **Goal:** Survive broker restarts, replays, partial failures. The outbox table from Phase 2 finally gets shipped to Kafka properly.
 
-**Key changes:**
-- **Outbox relay worker** — reads outbox rows, ships to Kafka, marks shipped
-- Kafka producer: `Acks=All`, `EnableIdempotence=true`, `Flush` on shutdown
-- Kafka consumers: manual offset commit after success, `EnableAutoCommit=false`
-- **Retry topic + DLQ topic** per consumer; exponential backoff
-- Event envelope schema: `eventId`, `eventType`, `version`, `occurredAt`, `payload`
-- Consumers dedupe by `eventId`
-- **Polly resilience** on every HTTP/gRPC call: retry + circuit breaker + timeout
+**Delivered:**
+- **Event Envelope schema** — `EventId`, `EventType`, `Version`, `OccurredAt`, `Payload`, `Metadata`
+- **Kafka producer hardening** — `Acks=All`, `EnableIdempotence=true`, `Flush` on shutdown
+- **Manual offset commit** — `EnableAutoCommit=false`, commit only after successful processing
+- **Retry topics + DLQ** — exponential backoff (2s, 4s, 8s), poison messages sent to DLQ after 3 attempts
+- **Polly resilience policies** — timeout → retry → circuit breaker for gRPC and HTTP calls
+- `KafkaConsumerBase` — reusable consumer with automatic retry and DLQ handling
+- `PatientEventsConsumer` + `PatientEventsRetryConsumer` in AI service
+- `ResiliencePolicies` helper — centralized Polly configuration
 
 **Done when:** Killing Kafka mid-write doesn't lose events; replaying a topic doesn't create duplicate billing accounts; transient gRPC failures auto-retry.
+
+**Tag:** `v0.4-phase-3` on commit [TBD] (merge of phase-3-event-reliability → main)
+
+**Retrospective:** `docs/phases/phase-3-event-reliability-retrospective.md`
 
 **Pre-read:** Kafka idempotent producers, consumer group rebalancing, Polly v8 resilience pipelines.
 

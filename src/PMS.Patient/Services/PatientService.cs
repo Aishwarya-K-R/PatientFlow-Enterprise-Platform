@@ -6,6 +6,7 @@ using PatientFlow.Patient.Data;
 using PatientFlow.Patient.Models;
 using PatientFlow.Common.Exceptions;
 using PatientFlow.Common.Kafka;
+using PatientFlow.Contracts.Events;
 
 namespace PatientFlow.Patient.Services;
 
@@ -121,10 +122,25 @@ public class PatientService(
             await _billingGrpcClient.CreateBillingAccountAsync(newPatient.Id);
 
             // 3. Now that the Id is real and gRPC succeeded, write the outbox event.
+            var eventEnvelope = new EventEnvelope
+            {
+                EventId = Guid.NewGuid().ToString(),
+                EventType = "PatientCreated",
+                Version = "v1",
+                OccurredAt = DateTime.UtcNow,
+                Source = "PatientService",
+                Payload = new PatientCreatedEvent
+                {
+                    PatientId = newPatient.Id,
+                    Email = newPatient.Email,
+                    Name = newPatient.Name
+                }
+            };
+
             _db.OutboxMessages.Add(new OutboxMessage
             {
                 Topic = _config["Kafka:PatientCreatedTopic"]!,
-                Payload = JsonSerializer.Serialize(new { PatientId = newPatient.Id }),
+                Payload = JsonSerializer.Serialize(eventEnvelope),
                 CreatedAt = DateTime.UtcNow
             });
             await _db.SaveChangesAsync();
@@ -163,10 +179,25 @@ public class PatientService(
         existing.RegisteredDate = patient.RegisteredDate;
 
         // Create outbox message for Kafka event
+        var eventEnvelope = new EventEnvelope
+        {
+            EventId = Guid.NewGuid().ToString(),
+            EventType = "PatientUpdated",
+            Version = "v1",
+            OccurredAt = DateTime.UtcNow,
+            Source = "PatientService",
+            Payload = new PatientUpdatedEvent
+            {
+                PatientId = id,
+                Email = existing.Email,
+                Name = existing.Name
+            }
+        };
+
         var outboxMessage = new OutboxMessage
         {
             Topic = _config["Kafka:PatientUpdatedTopic"]!,
-            Payload = JsonSerializer.Serialize(new { PatientId = id }),
+            Payload = JsonSerializer.Serialize(eventEnvelope),
             CreatedAt = DateTime.UtcNow
         };
 
@@ -181,10 +212,23 @@ public class PatientService(
         var existing = await _repo.GetByIdAsync(id) ?? throw new PatientNotFoundException(id);
 
         // Create outbox message for Kafka event
+        var eventEnvelope = new EventEnvelope
+        {
+            EventId = Guid.NewGuid().ToString(),
+            EventType = "PatientDeleted",
+            Version = "v1",
+            OccurredAt = DateTime.UtcNow,
+            Source = "PatientService",
+            Payload = new PatientDeletedEvent
+            {
+                PatientId = id
+            }
+        };
+
         var outboxMessage = new OutboxMessage
         {
             Topic = _config["Kafka:PatientDeletedTopic"]!,
-            Payload = JsonSerializer.Serialize(new { PatientId = id }),
+            Payload = JsonSerializer.Serialize(eventEnvelope),
             CreatedAt = DateTime.UtcNow
         };
 

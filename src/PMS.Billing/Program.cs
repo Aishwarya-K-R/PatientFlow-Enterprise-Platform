@@ -42,6 +42,13 @@ using (var scope = app.Services.CreateScope())
     db.Database.Migrate();
 }
 
+// Ensure Kafka producer flushes on graceful shutdown
+app.Lifetime.ApplicationStopping.Register(() =>
+{
+    var kafkaProducer = app.Services.GetRequiredService<KafkaProducer>();
+    kafkaProducer.Flush(TimeSpan.FromSeconds(10));
+});
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();

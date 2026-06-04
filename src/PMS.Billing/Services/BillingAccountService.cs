@@ -2,6 +2,7 @@ using System.Text.Json;
 using PatientFlow.Billing.Data;
 using PatientFlow.Billing.Models;
 using PatientFlow.Common.Kafka;
+using PatientFlow.Contracts.Events;
 
 namespace PatientFlow.Billing.Services;
 
@@ -27,11 +28,25 @@ public class BillingAccountService(
             Status = "ACTIVE"
         };
 
-        // Create outbox message for Kafka event
+        // Create outbox message for Kafka event with envelope
+        var eventEnvelope = new EventEnvelope
+        {
+            EventId = Guid.NewGuid().ToString(),
+            EventType = "BillingCreated",
+            Version = "v1",
+            OccurredAt = DateTime.UtcNow,
+            Source = "BillingService",
+            Payload = new BillingCreatedEvent
+            {
+                PatientId = patientId,
+                AccountId = billing.AccountId
+            }
+        };
+
         var outboxMessage = new OutboxMessage
         {
             Topic = _config["Kafka:BillingCreatedTopic"]!,
-            Payload = JsonSerializer.Serialize(new { PatientId = patientId, AccountId = billing.AccountId }),
+            Payload = JsonSerializer.Serialize(eventEnvelope),
             CreatedAt = DateTime.UtcNow
         };
 
