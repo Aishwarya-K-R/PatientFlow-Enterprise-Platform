@@ -29,6 +29,9 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 builder.Services.AddSingleton<RedisService>();
 builder.Services.AddHttpClient<LLMService>();
 
+// Register Kafka consumer as hosted service
+builder.Services.AddHostedService<PatientEventsConsumer>();
+
 builder.Host.UseSerilog((context, config) =>
     config.ReadFrom.Configuration(context.Configuration));
 

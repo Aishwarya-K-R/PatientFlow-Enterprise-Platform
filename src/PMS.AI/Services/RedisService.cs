@@ -29,6 +29,22 @@ public class RedisService(IConnectionMultiplexer redis, IConfiguration config)
         await _db.StringSetAsync($"{ContextKeyPrefix}{patientId}", context);
     }
 
+    // Overload for string keys (used by consumer for deduplication)
+    public async Task SetPatientContextAsync(string key, string value, TimeSpan? expiry = null)
+    {
+        await _db.StringSetAsync(key, value, expiry);
+    }
+
+    public async Task<string?> GetPatientContextAsync(string key)
+    {
+        return await _db.StringGetAsync(key);
+    }
+
+    public async Task DeletePatientContextAsync(string key)
+    {
+        await _db.KeyDeleteAsync(key);
+    }
+
     public async Task<Dictionary<int, string>> GetAllPatientContextsAsync()
     {
         var server = _db.Multiplexer.GetServer(_db.Multiplexer.GetEndPoints()[0]);
