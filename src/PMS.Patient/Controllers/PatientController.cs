@@ -53,4 +53,16 @@ public class PatientController(PatientService patientService) : ControllerBase
         await _patientService.DeletePatientAsync(id);
         return Ok(new { message = "Patient deleted successfully" });
     }
+
+    /// <summary>
+    /// Internal endpoint for AI service to fetch all patients for cache warming.
+    /// Protected to prevent abuse - should only be called during AI service initialization.
+    /// </summary>
+    [Authorize(Roles = "SYSTEM,ADMIN")]
+    [HttpGet("patients/all")]
+    public async Task<ActionResult> GetAllPatients()
+    {
+        var patients = await _patientService.GetAllPatientsAsync();
+        return Ok(patients);
+    }
 }

@@ -29,7 +29,10 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 builder.Services.AddSingleton<RedisService>();
 builder.Services.AddHttpClient<LLMService>();
 
-// Register Kafka consumers as hosted services
+// Register cache warmer (runs BEFORE consumers, ensures Redis has full patient snapshot)
+builder.Services.AddHostedService<PatientCacheWarmer>();
+
+// Register Kafka consumers as hosted services (incremental updates after cache warm-up)
 builder.Services.AddHostedService<PatientEventsConsumer>();
 builder.Services.AddHostedService<PatientEventsRetryConsumer>();
 

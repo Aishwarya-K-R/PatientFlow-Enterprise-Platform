@@ -256,4 +256,41 @@ public class PatientService(
         _memoryCache.Remove($"Patient_{id}");
         _ = _redisCache.RemoveAsync($"Patient_{id}");
     }
+
+    /// <summary>
+    /// Get all patients for AI service cache warming.
+    /// Returns lightweight DTOs (no full entity graph).
+    /// </summary>
+    public async Task<List<PatientSnapshotDto>> GetAllPatientsAsync()
+    {
+        _logger.LogInformation("Fetching all patients for cache snapshot");
+
+        var patients = await _db.Patients
+            .AsNoTracking()  // Read-only query
+            .Select(p => new PatientSnapshotDto
+            {
+                PatientId = p.Id,
+                Name = p.Name,
+                Email = p.Email,
+                DateOfBirth = p.DateOfBirth,
+                Address = p.Address
+            })
+            .ToListAsync();
+
+        _logger.LogInformation("Fetched {Count} patients for snapshot", patients.Count);
+        return patients;
+    }
+}
+
+/// <summary>
+/// Lightweight DTO for AI service cache warming.
+/// Contains only fields needed for AI context.
+/// </summary>
+public record PatientSnapshotDto
+{
+    public int PatientId { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string Email { get; init; } = string.Empty;
+    public DateOnly DateOfBirth { get; init; }
+    public string Address { get; init; } = string.Empty;
 }
