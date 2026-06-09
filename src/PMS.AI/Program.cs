@@ -29,10 +29,19 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 builder.Services.AddSingleton<RedisService>();
 builder.Services.AddHttpClient<LLMService>();
 
-// Register cache warmer (runs BEFORE consumers, ensures Redis has full patient snapshot)
-builder.Services.AddHostedService<PatientCacheWarmer>();
+// Typed HttpClient for Patient Service (service-to-service communication)
+builder.Services.AddHttpClient<PatientServiceClient>(client =>
+{
+    var baseUrl = builder.Configuration["PatientService:BaseUrl"] ?? "http://patient-service:5001";
+    client.BaseAddress = new Uri(baseUrl);
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
 
-// Register Kafka consumers as hosted services (incremental updates after cache warm-up)
+// Register warmup service (Background + injectable for admin endpoint)
+builder.Services.AddSingleton<AiCacheWarmupService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<AiCacheWarmupService>());
+
+// Register Kafka consumers (incremental updates after initial warmup)
 builder.Services.AddHostedService<PatientEventsConsumer>();
 builder.Services.AddHostedService<PatientEventsRetryConsumer>();
 
@@ -90,8 +99,3 @@ app.MapMetrics();
 app.MapHealthChecks("/health");
 
 app.Run();
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}

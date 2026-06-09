@@ -1,14 +1,18 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using PatientFlow.Patient.Services;
+using PatientFlow.Contracts.Dtos;
 
 namespace PatientFlow.Patient.Controllers;
 
 [ApiController]
 [Route("api")]
-public class PatientController(PatientService patientService) : ControllerBase
+public class PatientController(
+    PatientService patientService,
+    ILogger<PatientController> logger) : ControllerBase
 {
     private readonly PatientService _patientService = patientService;
+    private readonly ILogger<PatientController> _logger = logger;
 
     [Authorize]
     [HttpGet("patients")]
@@ -55,14 +59,30 @@ public class PatientController(PatientService patientService) : ControllerBase
     }
 
     /// <summary>
-    /// Internal endpoint for AI service to fetch all patients for cache warming.
-    /// Protected to prevent abuse - should only be called during AI service initialization.
+    /// Bulk export endpoint - returns ALL patients as lightweight DTOs.
+    /// Use cases: cache warming, data export, backup systems.
+    /// WARNING: No pagination - use only for internal services or admin operations.
     /// </summary>
-    [Authorize(Roles = "SYSTEM,ADMIN")]
+    [Authorize(Roles = "ADMIN")]
     [HttpGet("patients/all")]
     public async Task<ActionResult> GetAllPatients()
     {
-        var patients = await _patientService.GetAllPatientsAsync();
-        return Ok(patients);
+        _logger.LogInformation("Bulk patient export requested");
+
+        var patients = await _patientService.GetPatientsAsync("", "Id", "asc", 1, int.MaxValue);
+
+        // Map to lightweight DTO (reduces payload size)
+        var dtos = patients.Select(p => new PatientDto
+        {
+            Id = p.Id,
+            Name = p.Name,
+            Email = p.Email,
+            DateOfBirth = p.DateOfBirth,
+            Address = p.Address,
+            RegisteredDate = p.RegisteredDate
+        }).ToList();
+
+        _logger.LogInformation("Returning {Count} patients", dtos.Count);
+        return Ok(dtos);
     }
 }

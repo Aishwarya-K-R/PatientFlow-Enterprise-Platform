@@ -14,12 +14,14 @@ public class AIController(
     RedisService redis,
     LLMService llm,
     IOptions<AISettings> settings,
+    AiCacheWarmupService warmupService,
     ILogger<AIController> logger
 ) : ControllerBase
 {
     private readonly RedisService _redis = redis;
     private readonly LLMService _llm = llm;
     private readonly AISettings _settings = settings.Value;
+    private readonly AiCacheWarmupService _warmupService = warmupService;
     private readonly ILogger<AIController> _logger = logger;
 
     [Authorize(Roles = "ADMIN")]
@@ -63,5 +65,33 @@ public class AIController(
         );
 
         return Content(readableAnswer, "text/plain");
+    }
+
+    /// <summary>
+    /// Admin endpoint to manually trigger cache warmup.
+    /// Useful when Redis is flushed or ops needs to force refresh.
+    /// Idempotent - checks _cache_initialized flag.
+    /// </summary>
+    [Authorize(Roles = "ADMIN")]
+    [HttpPost("admin/warmup")]
+    public async Task<IActionResult> WarmupCache()
+    {
+        _logger.LogInformation("Manual cache warmup triggered by admin");
+
+        try
+        {
+            await _warmupService.WarmupCacheAsync(HttpContext.RequestAborted);
+            return Ok(new { message = "Cache warmup completed successfully" });
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Failed to warmup cache - Patient Service unreachable");
+            return StatusCode(503, new { error = "Patient Service unavailable" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Cache warmup failed");
+            return StatusCode(500, new { error = "Cache warmup failed", details = ex.Message });
+        }
     }
 }
