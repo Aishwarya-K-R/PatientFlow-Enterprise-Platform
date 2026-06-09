@@ -31,6 +31,7 @@ simulation without the cloud bill.
 | 1 | Real microservices split | ✅ Done | `v0.2-phase-1` | 1 | – |
 | 2 | Data ownership & validation | ✅ Done | `v0.3-phase-2` | 2 | $20–40 |
 | 3 | Event-driven reliability | ✅ Done | `v0.4-phase-3` | 2 | $25–45 |
+| 3.5 | Cache warming (CRITICAL) | ✅ Done | `v0.4.1-phase-3.5` | 0.5 | – |
 | 4 | Security hardening | – | `v0.5-phase-4` | 2 | $25–45 |
 | 5 | TLS & PHI protection | – | `v0.6-phase-5` | 1–2 | $20–40 |
 | 6 | Observability | – | `v0.7-phase-6` | 2 | $30–50 |
@@ -40,7 +41,7 @@ simulation without the cloud bill.
 | 10 | Proper RAG + safer LLM | – | `v0.11-phase-10` | 2 | $25–45 |
 | 11 | MCP server integration | – | `v0.12-phase-11` | 1–2 | $20–35 |
 | 12 | Compliance polish & docs | – | `v1.0` | 1 | $15–30 |
-| | **Estimated total** | | | **~22** | **$280–525** |
+| | **Estimated total** | | | **~22.5** | **$280–525** |
 
 ---
 
@@ -138,11 +139,37 @@ PatientFlow.sln
 
 **Done when:** Killing Kafka mid-write doesn't lose events; replaying a topic doesn't create duplicate billing accounts; transient gRPC failures auto-retry.
 
-**Tag:** `v0.4-phase-3` on commit [TBD] (merge of phase-3-event-reliability → main)
+**Tag:** `v0.4-phase-3` on commit 506a388 (merge of phase-3-event-reliability → main)
 
 **Retrospective:** `docs/phases/phase-3-event-reliability-retrospective.md`
 
 **Pre-read:** Kafka idempotent producers, consumer group rebalancing, Polly v8 resilience pipelines.
+
+---
+
+## Phase 3.5 — Cache Warming (CRITICAL Enhancement) ✅
+
+**Goal:** Fix cold start problem where AI service only has data for events consumed after deployment.
+
+**Delivered:**
+- **PatientCacheWarmer** service — runs on AI service startup
+- Fetches ALL existing patients from Patient Service via HTTP
+- Loads full snapshot into Redis (one-time warm-up)
+- Marks cache as initialized to skip on subsequent restarts
+- Kafka consumers provide incremental updates to pre-warmed cache
+- GET `/api/patients/all` endpoint in Patient Service (SYSTEM role only)
+- `PatientSnapshotDto` — lightweight DTO for cache warming
+
+**Architecture:** Hybrid approach (Cache Warming + Event-Driven Updates)
+- **Startup:** Full snapshot from database → Redis (one-time)
+- **Runtime:** Incremental updates via Kafka events (real-time)
+- **Pattern:** Cache-Aside with Event Invalidation (Netflix, Facebook, Amazon)
+
+**Problem solved:** Pure event-driven approach left AI service blind to historical patients created before consumer started. Users querying old patients got "no information available" despite data existing in database.
+
+**Tag:** `v0.4.1-phase-3.5` on commit b7bca50 (merge of phase-3.5-cache-warming → main)
+
+**Documentation:** `docs/phases/phase-3.5-cache-warming.md` (CRITICAL - explains problem, solution, trade-offs)
 
 ---
 

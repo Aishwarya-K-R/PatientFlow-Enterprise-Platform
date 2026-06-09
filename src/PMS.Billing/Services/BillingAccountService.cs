@@ -1,19 +1,18 @@
 using System.Text.Json;
 using PatientFlow.Billing.Data;
 using PatientFlow.Billing.Models;
-using PatientFlow.Common.Kafka;
 using PatientFlow.Contracts.Events;
 
 namespace PatientFlow.Billing.Services;
 
 public class BillingAccountService(
-    BillingDbContext context, 
-    KafkaProducer kafkaProducer, 
+    BillingDbContext context,
     IConfiguration config,
     ILogger<BillingAccountService> logger)
 {
+    private const string DefaultStatus = "ACTIVE";
+
     private readonly BillingDbContext _context = context;
-    private readonly KafkaProducer _kafkaProducer = kafkaProducer;
     private readonly IConfiguration _config = config;
     private readonly ILogger<BillingAccountService> _logger = logger;
 
@@ -25,28 +24,22 @@ public class BillingAccountService(
         {
             PatientId = patientId,
             AccountId = Guid.NewGuid().ToString(),
-            Status = "ACTIVE"
+            Status = DefaultStatus
         };
 
-        // Create outbox message for Kafka event with envelope
-        var eventEnvelope = new EventEnvelope
-        {
-            EventId = Guid.NewGuid().ToString(),
-            EventType = "BillingCreated",
-            Version = "v1",
-            OccurredAt = DateTime.UtcNow,
-            Source = "BillingService",
-            Payload = new BillingCreatedEvent
+        var envelope = EventEnvelope.Create(
+            eventType: EventTypes.BillingCreated,
+            source: EventSources.BillingService,
+            payload: new BillingCreatedEvent
             {
                 PatientId = patientId,
                 AccountId = billing.AccountId
-            }
-        };
+            });
 
         var outboxMessage = new OutboxMessage
         {
             Topic = _config["Kafka:BillingCreatedTopic"]!,
-            Payload = JsonSerializer.Serialize(eventEnvelope),
+            Payload = JsonSerializer.Serialize(envelope),
             CreatedAt = DateTime.UtcNow
         };
 
@@ -54,7 +47,8 @@ public class BillingAccountService(
         _context.OutboxMessages.Add(outboxMessage);
         await _context.SaveChangesAsync();
 
-        _logger.LogInformation("Billing account {AccountId} created for PatientId {PatientId}", 
+        _logger.LogInformation(
+            "Billing account {AccountId} created for PatientId {PatientId}",
             billing.AccountId, patientId);
 
         return billing;

@@ -52,10 +52,11 @@ public class PatientEventsConsumer : KafkaConsumerBase<PatientCreatedEvent>
                 return true; // Return true to commit offset (idempotent processing)
             }
 
-            // Process based on event type
+            // Process based on event type — case labels use EventTypes constants
+            // (defined in PatientFlow.Contracts.Events) instead of magic strings.
             switch (envelope.EventType)
             {
-                case "PatientCreated":
+                case EventTypes.PatientCreated:
                     var patientCreated = JsonSerializer.Deserialize<PatientCreatedEvent>(
                         envelope.Payload.ToString()!);
                     if (patientCreated != null)
@@ -64,7 +65,7 @@ public class PatientEventsConsumer : KafkaConsumerBase<PatientCreatedEvent>
                     }
                     break;
 
-                case "PatientUpdated":
+                case EventTypes.PatientUpdated:
                     var patientUpdated = JsonSerializer.Deserialize<PatientUpdatedEvent>(
                         envelope.Payload.ToString()!);
                     if (patientUpdated != null)
@@ -73,7 +74,7 @@ public class PatientEventsConsumer : KafkaConsumerBase<PatientCreatedEvent>
                     }
                     break;
 
-                case "PatientDeleted":
+                case EventTypes.PatientDeleted:
                     var patientDeleted = JsonSerializer.Deserialize<PatientDeletedEvent>(
                         envelope.Payload.ToString()!);
                     if (patientDeleted != null)

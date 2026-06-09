@@ -62,10 +62,11 @@ public class PatientEventsRetryConsumer : KafkaConsumerBase<PatientCreatedEvent>
                 return true;
             }
 
-            // Process based on event type
+            // Process based on event type — same logic as main consumer.
+            // Uses EventTypes constants from PatientFlow.Contracts.Events.
             switch (envelope.EventType)
             {
-                case "PatientCreated":
+                case EventTypes.PatientCreated:
                     var patientCreated = JsonSerializer.Deserialize<PatientCreatedEvent>(
                         envelope.Payload.ToString()!);
                     if (patientCreated != null)
@@ -74,7 +75,7 @@ public class PatientEventsRetryConsumer : KafkaConsumerBase<PatientCreatedEvent>
                     }
                     break;
 
-                case "PatientUpdated":
+                case EventTypes.PatientUpdated:
                     var patientUpdated = JsonSerializer.Deserialize<PatientUpdatedEvent>(
                         envelope.Payload.ToString()!);
                     if (patientUpdated != null)
@@ -83,7 +84,7 @@ public class PatientEventsRetryConsumer : KafkaConsumerBase<PatientCreatedEvent>
                     }
                     break;
 
-                case "PatientDeleted":
+                case EventTypes.PatientDeleted:
                     var patientDeleted = JsonSerializer.Deserialize<PatientDeletedEvent>(
                         envelope.Payload.ToString()!);
                     if (patientDeleted != null)

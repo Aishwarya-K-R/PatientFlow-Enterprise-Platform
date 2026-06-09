@@ -5,7 +5,6 @@ using Microsoft.Extensions.Caching.Memory;
 using PatientFlow.Patient.Data;
 using PatientFlow.Patient.Models;
 using PatientFlow.Common.Exceptions;
-using PatientFlow.Common.Kafka;
 using PatientFlow.Contracts.Events;
 
 namespace PatientFlow.Patient.Services;
@@ -15,16 +14,21 @@ public class PatientService(
     PatientDbContext db,
     IMemoryCache memoryCache,
     IDistributedCache redisCache,
-    KafkaProducer kafkaProducer,
     BillingGrpcClient billingGrpcClient,
     ILogger<PatientService> logger,
     IConfiguration config)
 {
+    // Cache key prefix + TTLs centralised so they're not magic numbers sprinkled inline.
+    private const string CacheKeyPrefix = "Patient_";
+    private static readonly TimeSpan MemoryCacheAbsoluteTtl = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan MemoryCacheSlidingTtl  = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan RedisCacheAbsoluteTtl  = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan RedisCacheSlidingTtl   = TimeSpan.FromMinutes(5);
+
     private readonly IPatientRepository _repo = repo;
     private readonly PatientDbContext _db = db;
     private readonly IMemoryCache _memoryCache = memoryCache;
     private readonly IDistributedCache _redisCache = redisCache;
-    private readonly KafkaProducer _kafkaProducer = kafkaProducer;
     private readonly BillingGrpcClient _billingGrpcClient = billingGrpcClient;
     private readonly IConfiguration _config = config;
     private readonly ILogger<PatientService> _logger = logger;
@@ -37,7 +41,7 @@ public class PatientService(
 
     public async Task<Models.Patient> GetPatientByIdAsync(int id)
     {
-        string cacheKey = $"Patient_{id}";
+        var cacheKey = CacheKey(id);
 
         _logger.LogInformation("Trying to get patient with ID {Id} from Memory Cache", id);
         if (_memoryCache.TryGetValue(cacheKey, out Models.Patient? cachedPatient) && cachedPatient != null)
@@ -54,14 +58,7 @@ public class PatientService(
             var patientObj = JsonSerializer.Deserialize<Models.Patient>(patientJson);
             if (patientObj != null)
             {
-                _memoryCache.Set(
-                    cacheKey,
-                    patientObj,
-                    new MemoryCacheEntryOptions
-                    {
-                        AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5),
-                        SlidingExpiration = TimeSpan.FromMinutes(2)
-                    });
+                _memoryCache.Set(cacheKey, patientObj, MemoryCacheOptions());
                 return patientObj;
             }
         }
@@ -70,20 +67,8 @@ public class PatientService(
         var patient = await _repo.GetByIdAsync(id) ?? throw new PatientNotFoundException(id);
 
         _logger.LogInformation("Found patient with ID {Id} in Database. Caching now", id);
-        _memoryCache.Set(
-            cacheKey,
-            patient,
-            new MemoryCacheEntryOptions
-            {
-                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5),
-                SlidingExpiration = TimeSpan.FromMinutes(2)
-            });
-        await _redisCache.SetStringAsync(cacheKey, JsonSerializer.Serialize(patient),
-            new DistributedCacheEntryOptions
-            {
-                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10),
-                SlidingExpiration = TimeSpan.FromMinutes(5)
-            });
+        _memoryCache.Set(cacheKey, patient, MemoryCacheOptions());
+        await _redisCache.SetStringAsync(cacheKey, JsonSerializer.Serialize(patient), RedisCacheOptions());
 
         return patient;
     }
@@ -107,42 +92,26 @@ public class PatientService(
         };
 
         // Saga: patient row + Billing gRPC call + outbox event must all succeed
-        // or all roll back. We open an explicit transaction so we can call gRPC
-        // AFTER the patient has an Id (post-SaveChanges) but BEFORE we commit.
+        // or all roll back. Explicit transaction lets us call gRPC AFTER the
+        // patient has an Id (post-SaveChanges) but BEFORE we commit.
         using var tx = await _db.Database.BeginTransactionAsync();
         try
         {
-            // 1. Save patient — populates newPatient.Id from the database.
             _db.Patients.Add(newPatient);
             await _db.SaveChangesAsync();
 
-            // 2. Synchronous gRPC call to Billing. If this fails, the whole
-            //    transaction rolls back — no orphan patient row, no outbox event.
             _logger.LogInformation("Creating billing account via gRPC for Patient {PatientId}", newPatient.Id);
             await _billingGrpcClient.CreateBillingAccountAsync(newPatient.Id);
 
-            // 3. Now that the Id is real and gRPC succeeded, write the outbox event.
-            var eventEnvelope = new EventEnvelope
-            {
-                EventId = Guid.NewGuid().ToString(),
-                EventType = "PatientCreated",
-                Version = "v1",
-                OccurredAt = DateTime.UtcNow,
-                Source = "PatientService",
-                Payload = new PatientCreatedEvent
+            _db.OutboxMessages.Add(BuildOutboxMessage(
+                topicKey: "Kafka:PatientCreatedTopic",
+                eventType: EventTypes.PatientCreated,
+                payload: new PatientCreatedEvent
                 {
                     PatientId = newPatient.Id,
                     Email = newPatient.Email,
                     Name = newPatient.Name
-                }
-            };
-
-            _db.OutboxMessages.Add(new OutboxMessage
-            {
-                Topic = _config["Kafka:PatientCreatedTopic"]!,
-                Payload = JsonSerializer.Serialize(eventEnvelope),
-                CreatedAt = DateTime.UtcNow
-            });
+                }));
             await _db.SaveChangesAsync();
 
             await tx.CommitAsync();
@@ -178,28 +147,15 @@ public class PatientService(
         existing.DateOfBirth = patient.DateOfBirth;
         existing.RegisteredDate = patient.RegisteredDate;
 
-        // Create outbox message for Kafka event
-        var eventEnvelope = new EventEnvelope
-        {
-            EventId = Guid.NewGuid().ToString(),
-            EventType = "PatientUpdated",
-            Version = "v1",
-            OccurredAt = DateTime.UtcNow,
-            Source = "PatientService",
-            Payload = new PatientUpdatedEvent
+        var outboxMessage = BuildOutboxMessage(
+            topicKey: "Kafka:PatientUpdatedTopic",
+            eventType: EventTypes.PatientUpdated,
+            payload: new PatientUpdatedEvent
             {
                 PatientId = id,
                 Email = existing.Email,
                 Name = existing.Name
-            }
-        };
-
-        var outboxMessage = new OutboxMessage
-        {
-            Topic = _config["Kafka:PatientUpdatedTopic"]!,
-            Payload = JsonSerializer.Serialize(eventEnvelope),
-            CreatedAt = DateTime.UtcNow
-        };
+            });
 
         await _repo.UpdateAsync(existing, outboxMessage);
 
@@ -211,31 +167,48 @@ public class PatientService(
     {
         var existing = await _repo.GetByIdAsync(id) ?? throw new PatientNotFoundException(id);
 
-        // Create outbox message for Kafka event
-        var eventEnvelope = new EventEnvelope
-        {
-            EventId = Guid.NewGuid().ToString(),
-            EventType = "PatientDeleted",
-            Version = "v1",
-            OccurredAt = DateTime.UtcNow,
-            Source = "PatientService",
-            Payload = new PatientDeletedEvent
-            {
-                PatientId = id
-            }
-        };
-
-        var outboxMessage = new OutboxMessage
-        {
-            Topic = _config["Kafka:PatientDeletedTopic"]!,
-            Payload = JsonSerializer.Serialize(eventEnvelope),
-            CreatedAt = DateTime.UtcNow
-        };
+        var outboxMessage = BuildOutboxMessage(
+            topicKey: "Kafka:PatientDeletedTopic",
+            eventType: EventTypes.PatientDeleted,
+            payload: new PatientDeletedEvent { PatientId = id });
 
         await _repo.DeleteAsync(existing, outboxMessage);
 
         InvalidateCaches(id);
     }
+
+    // -------------------------------------------------------------------
+    // Private helpers
+    // -------------------------------------------------------------------
+
+    private OutboxMessage BuildOutboxMessage(string topicKey, string eventType, object payload)
+    {
+        var envelope = EventEnvelope.Create(
+            eventType: eventType,
+            source: EventSources.PatientService,
+            payload: payload);
+
+        return new OutboxMessage
+        {
+            Topic = _config[topicKey]!,
+            Payload = JsonSerializer.Serialize(envelope),
+            CreatedAt = DateTime.UtcNow
+        };
+    }
+
+    private static string CacheKey(int id) => $"{CacheKeyPrefix}{id}";
+
+    private static MemoryCacheEntryOptions MemoryCacheOptions() => new()
+    {
+        AbsoluteExpirationRelativeToNow = MemoryCacheAbsoluteTtl,
+        SlidingExpiration = MemoryCacheSlidingTtl
+    };
+
+    private static DistributedCacheEntryOptions RedisCacheOptions() => new()
+    {
+        AbsoluteExpirationRelativeToNow = RedisCacheAbsoluteTtl,
+        SlidingExpiration = RedisCacheSlidingTtl
+    };
 
     private static void Validate(Models.Patient patient)
     {
@@ -253,7 +226,8 @@ public class PatientService(
 
     private void InvalidateCaches(int id)
     {
-        _memoryCache.Remove($"Patient_{id}");
-        _ = _redisCache.RemoveAsync($"Patient_{id}");
+        var key = CacheKey(id);
+        _memoryCache.Remove(key);
+        _ = _redisCache.RemoveAsync(key);
     }
 }
