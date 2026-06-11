@@ -10,6 +10,7 @@ using PatientFlow.Patient.Data;
 using PatientFlow.Patient.Services;
 using PatientFlow.Common.Exceptions;
 using PatientFlow.Common.Kafka;
+using PatientFlow.Common.Telemetry;
 using PatientFlow.Patient.Validators;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -17,6 +18,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Configuration
     .AddJsonFile("appsettings.json", optional: false)
     .AddEnvironmentVariables();
+
+builder.Services.AddOpenTelemetryTracing(builder.Configuration, "Patient-Service");
 
 builder.Services.AddDbContext<PatientDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));

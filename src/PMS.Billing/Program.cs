@@ -6,12 +6,15 @@ using PatientFlow.Billing.Services;
 using PatientFlow.Billing.Grpc;
 using PatientFlow.Common.Exceptions;
 using PatientFlow.Common.Kafka;
+using PatientFlow.Common.Telemetry;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Configuration
     .AddJsonFile("appsettings.json", optional: false)
     .AddEnvironmentVariables();
+
+builder.Services.AddOpenTelemetryTracing(builder.Configuration, "Billing-Service");
 
 builder.Services.AddDbContext<BillingDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));

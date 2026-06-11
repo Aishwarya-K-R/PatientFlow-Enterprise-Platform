@@ -10,6 +10,7 @@ using PatientFlow.Auth.Data;
 using PatientFlow.Auth.Services;
 using PatientFlow.Auth.Config;
 using PatientFlow.Common.Exceptions;
+using PatientFlow.Common.Telemetry;
 using PatientFlow.Contracts.Validators;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -17,6 +18,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Configuration
     .AddJsonFile("appsettings.json", optional: false)
     .AddEnvironmentVariables();
+
+builder.Services.AddOpenTelemetryTracing(builder.Configuration, "Auth-Service");
 
 builder.Services.AddDbContext<AuthDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));

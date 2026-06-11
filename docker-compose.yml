@@ -80,6 +80,7 @@ services:
       ReverseProxy__Clusters__auth-cluster__Destinations__auth-service__Address: http://auth-service:8080/
       ReverseProxy__Clusters__patient-cluster__Destinations__patient-service__Address: http://patient-service:8080/
       ReverseProxy__Clusters__ai-cluster__Destinations__ai-service__Address: http://ai-service:8080/
+      OpenTelemetry__OtlpEndpoint: http://tempo:4318
     networks:
       - patientflow-network
 
@@ -100,6 +101,7 @@ services:
       Jwt__Key: ${JWT_SECRET}
       Jwt__Issuer: ${JWT_ISSUER}
       Jwt__Audience: ${JWT_AUDIENCE}
+      OpenTelemetry__OtlpEndpoint: http://tempo:4318
     networks:
       - patientflow-network
 
@@ -128,6 +130,7 @@ services:
       BillingService__Address: billing-service
       BillingService__Port: 8080
       Kafka__BootstrapServers: kafka:29092
+      OpenTelemetry__OtlpEndpoint: http://tempo:4318
     networks:
       - patientflow-network
 
@@ -148,6 +151,7 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${BILLING_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
       Kafka__BootstrapServers: kafka:29092
+      OpenTelemetry__OtlpEndpoint: http://tempo:4318
     networks:
       - patientflow-network
 
@@ -170,6 +174,43 @@ services:
       Jwt__Audience: ${JWT_AUDIENCE}
       AI__Endpoint: ${AI_ENDPOINT}
       AI__Model: ${AI_MODEL}
+      OpenTelemetry__OtlpEndpoint: http://tempo:4318
+    networks:
+      - patientflow-network
+
+  # ===========================================================================
+  # Observability - Tempo (Distributed Tracing)
+  # ===========================================================================
+  tempo:
+    image: grafana/tempo:2.4.0
+    container_name: tempo
+    command: [ "-config.file=/etc/tempo.yaml" ]
+    volumes:
+      - ./observability/tempo-config.yaml:/etc/tempo.yaml
+      - tempo-data:/tmp/tempo
+    ports:
+      - "3200:3200"   # Tempo HTTP API
+      - "4318:4318"   # OTLP HTTP receiver
+    networks:
+      - patientflow-network
+
+  # ===========================================================================
+  # Observability - Grafana (Visualization)
+  # ===========================================================================
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: grafana
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+    volumes:
+      - ./observability/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"   # Grafana UI
+    depends_on:
+      - tempo
     networks:
       - patientflow-network
 
@@ -179,3 +220,5 @@ networks:
 
 volumes:
   postgres-data:
+  tempo-data:
+  grafana-data:
