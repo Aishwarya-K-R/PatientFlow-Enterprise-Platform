@@ -9,6 +9,7 @@ using FluentValidation.AspNetCore;
 using PatientFlow.Contracts.Config;
 using PatientFlow.AI.Services;
 using PatientFlow.Common.Exceptions;
+using PatientFlow.Common.Telemetry;
 using PatientFlow.Contracts.Validators;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -16,6 +17,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Configuration
     .AddJsonFile("appsettings.json", optional: false)
     .AddEnvironmentVariables();
+
+builder.Services.AddOpenTelemetryTracing(builder.Configuration, "AI-Service");
 
 builder.Services.Configure<AISettings>(
     builder.Configuration.GetSection("AI"));
