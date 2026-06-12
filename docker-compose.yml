@@ -81,6 +81,7 @@ services:
       ReverseProxy__Clusters__patient-cluster__Destinations__patient-service__Address: http://patient-service:8080/
       ReverseProxy__Clusters__ai-cluster__Destinations__ai-service__Address: http://ai-service:8080/
       OpenTelemetry__OtlpEndpoint: http://tempo:4318
+      Serilog__WriteTo__1__Args__uri: http://loki:3100
     networks:
       - patientflow-network
 
@@ -102,6 +103,7 @@ services:
       Jwt__Issuer: ${JWT_ISSUER}
       Jwt__Audience: ${JWT_AUDIENCE}
       OpenTelemetry__OtlpEndpoint: http://tempo:4318
+      Serilog__WriteTo__1__Args__uri: http://loki:3100
     networks:
       - patientflow-network
 
@@ -128,9 +130,11 @@ services:
       Jwt__Issuer: ${JWT_ISSUER}
       Jwt__Audience: ${JWT_AUDIENCE}
       BillingService__Address: billing-service
-      BillingService__Port: 8080
+      BillingService__Port: 8081
       Kafka__BootstrapServers: kafka:29092
+      InternalApiKey: ${INTERNAL_API_KEY}
       OpenTelemetry__OtlpEndpoint: http://tempo:4318
+      Serilog__WriteTo__1__Args__uri: http://loki:3100
     networks:
       - patientflow-network
 
@@ -152,6 +156,7 @@ services:
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${BILLING_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
       Kafka__BootstrapServers: kafka:29092
       OpenTelemetry__OtlpEndpoint: http://tempo:4318
+      Serilog__WriteTo__1__Args__uri: http://loki:3100
     networks:
       - patientflow-network
 
@@ -164,6 +169,10 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      patient-service:
+        condition: service_started
+      kafka:
+        condition: service_started
     ports:
       - "${AI_PORT}:8080"
     environment:
@@ -174,7 +183,11 @@ services:
       Jwt__Audience: ${JWT_AUDIENCE}
       AI__Endpoint: ${AI_ENDPOINT}
       AI__Model: ${AI_MODEL}
+      PatientService__BaseUrl: http://patient-service:8080
+      PatientService__InternalApiKey: ${INTERNAL_API_KEY}
+      Kafka__BootstrapServers: kafka:29092
       OpenTelemetry__OtlpEndpoint: http://tempo:4318
+      Serilog__WriteTo__1__Args__uri: http://loki:3100
     networks:
       - patientflow-network
 
@@ -195,6 +208,21 @@ services:
       - patientflow-network
 
   # ===========================================================================
+  # Observability - Loki (Log Aggregation)
+  # ===========================================================================
+  loki:
+    image: grafana/loki:2.9.4
+    container_name: loki
+    command: [ "-config.file=/etc/loki/loki-config.yaml" ]
+    volumes:
+      - ./observability/loki-config.yaml:/etc/loki/loki-config.yaml
+      - loki-data:/tmp/loki
+    ports:
+      - "3100:3100"   # Loki HTTP API
+    networks:
+      - patientflow-network
+
+  # ===========================================================================
   # Observability - Grafana (Visualization)
   # ===========================================================================
   grafana:
@@ -211,6 +239,7 @@ services:
       - "3000:3000"   # Grafana UI
     depends_on:
       - tempo
+      - loki
     networks:
       - patientflow-network
 
@@ -221,4 +250,5 @@ networks:
 volumes:
   postgres-data:
   tempo-data:
+  loki-data:
   grafana-data:
