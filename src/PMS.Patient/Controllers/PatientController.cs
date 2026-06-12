@@ -62,6 +62,8 @@ public class PatientController(
     /// Bulk export endpoint - returns ALL patients as lightweight DTOs.
     /// Use cases: cache warming, data export, backup systems.
     /// WARNING: No pagination - use only for internal services or admin operations.
+    /// Accepts either an ADMIN JWT or an X-Internal-Api-Key header (handled by
+    /// InternalApiKeyMiddleware) for service-to-service callers like AI warmup.
     /// </summary>
     [Authorize(Roles = "ADMIN")]
     [HttpGet("patients/all")]

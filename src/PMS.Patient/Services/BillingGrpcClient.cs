@@ -22,7 +22,23 @@ public class BillingGrpcClient
 
         _logger.LogInformation("Connecting to Billing Service at {GrpcUrl}", grpcUrl);
 
-        var channel = GrpcChannel.ForAddress(grpcUrl);
+        // Cleartext gRPC (h2c) — Billing serves Http1AndHttp2 on the same port.
+        // Without this hint, HttpClient negotiates HTTP/1.1 and gRPC fails with
+        // HTTP_1_1_REQUIRED (0xd).
+        var handler = new SocketsHttpHandler
+        {
+            EnableMultipleHttp2Connections = true
+        };
+        var httpClient = new HttpClient(handler)
+        {
+            DefaultRequestVersion = new Version(2, 0),
+            DefaultVersionPolicy = HttpVersionPolicy.RequestVersionExact
+        };
+
+        var channel = GrpcChannel.ForAddress(grpcUrl, new GrpcChannelOptions
+        {
+            HttpClient = httpClient
+        });
         _client = new BillingService.BillingServiceClient(channel);
 
         // Initialize Polly resilience pipeline (timeout → retry → circuit breaker)

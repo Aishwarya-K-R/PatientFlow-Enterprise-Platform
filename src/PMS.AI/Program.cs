@@ -35,9 +35,16 @@ builder.Services.AddHttpClient<LLMService>();
 // Typed HttpClient for Patient Service (service-to-service communication)
 builder.Services.AddHttpClient<PatientServiceClient>(client =>
 {
-    var baseUrl = builder.Configuration["PatientService:BaseUrl"] ?? "http://patient-service:5001";
+    var baseUrl = builder.Configuration["PatientService:BaseUrl"] ?? "http://patient-service:8080";
     client.BaseAddress = new Uri(baseUrl);
     client.Timeout = TimeSpan.FromSeconds(30);
+
+    // Service-to-service auth via shared internal key (bypasses JWT for trusted callers).
+    var internalKey = builder.Configuration["PatientService:InternalApiKey"];
+    if (!string.IsNullOrEmpty(internalKey))
+    {
+        client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalKey);
+    }
 });
 
 // Register warmup service (Background + injectable for admin endpoint)

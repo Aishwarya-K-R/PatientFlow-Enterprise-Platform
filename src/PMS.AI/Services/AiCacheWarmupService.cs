@@ -122,16 +122,18 @@ public class AiCacheWarmupService : BackgroundService
         }
         catch (HttpRequestException ex)
         {
-            // Patient service unreachable — fail startup so the orchestrator restarts
-            // us and tries again. AI service can't usefully serve queries without
-            // patient context.
-            _logger.LogError(ex, "Failed to reach Patient Service: {Message}", ex.Message);
-            throw;
+            // Patient service unreachable — log and continue. Kafka events
+            // (PatientCreated/Updated/Deleted) will incrementally hydrate the
+            // cache once the service comes online. Crashing here would put us
+            // in a restart loop and starve the rest of the AI service.
+            _logger.LogError(ex,
+                "Failed to reach Patient Service during warmup: {Message}. " +
+                "Cache will hydrate incrementally via Kafka events.",
+                ex.Message);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unexpected error during warmup: {Message}", ex.Message);
-            throw;
         }
     }
 

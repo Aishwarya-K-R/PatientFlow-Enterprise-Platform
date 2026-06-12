@@ -12,7 +12,6 @@ using PatientFlow.Common.Exceptions;
 using PatientFlow.Common.Kafka;
 using PatientFlow.Common.Telemetry;
 using PatientFlow.Patient.Validators;
-
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Configuration
@@ -93,6 +92,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseExceptionHandler();
+
+app.UseMiddleware<PatientFlow.Patient.Middleware.InternalApiKeyMiddleware>();
 
 app.UseAuthentication();
 
