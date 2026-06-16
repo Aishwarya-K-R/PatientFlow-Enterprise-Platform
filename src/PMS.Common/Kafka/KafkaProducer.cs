@@ -2,6 +2,7 @@ using Confluent.Kafka;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using PatientFlow.Common.Metrics;
 
 namespace PatientFlow.Common.Kafka;
 
@@ -69,11 +70,14 @@ public class KafkaProducer : IDisposable
                 Value = json
             });
 
+            AppMetrics.KafkaMessagesPublished.WithLabels(topic).Inc();
+
             _logger.LogDebug("Message published to {Topic} at offset {Offset}", 
                 topic, result.Offset.Value);
         }
         catch (ProduceException<Null, string> ex)
         {
+            AppMetrics.KafkaMessagesFailed.WithLabels(topic).Inc();
             _logger.LogError(ex, "Failed to publish message to {Topic}: {Reason}", 
                 topic, ex.Error.Reason);
             throw;
@@ -94,11 +98,14 @@ public class KafkaProducer : IDisposable
                 Value = jsonPayload
             });
 
+            AppMetrics.KafkaMessagesPublished.WithLabels(topic).Inc();
+
             _logger.LogDebug("Raw message published to {Topic} at offset {Offset}", 
                 topic, result.Offset.Value);
         }
         catch (ProduceException<Null, string> ex)
         {
+            AppMetrics.KafkaMessagesFailed.WithLabels(topic).Inc();
             _logger.LogError(ex, "Failed to publish raw message to {Topic}: {Reason}", 
                 topic, ex.Error.Reason);
             throw;

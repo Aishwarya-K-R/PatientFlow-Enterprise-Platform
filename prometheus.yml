@@ -2,18 +2,35 @@ global:
   scrape_interval: 5s
 
 scrape_configs:
+  # All services expose /metrics on their internal Kestrel port (8080)
+  - job_name: 'gateway'
+    static_configs:
+      - targets: ['gateway:8080']
+        labels:
+          service: 'gateway'
+
   - job_name: 'auth-service'
     static_configs:
-      - targets: ['auth-service:4005']
+      - targets: ['auth-service:8080']
+        labels:
+          service: 'auth'
 
   - job_name: 'patient-service'
     static_configs:
-      - targets: ['patient-service:5244']
-  
+      - targets: ['patient-service:8080']
+        labels:
+          service: 'patient'
+
+  - job_name: 'billing-service'
+    static_configs:
+      # Billing has dual Kestrel endpoints (8080 Http1 for REST/metrics,
+      # 8081 Http2 for gRPC) - scrape the HTTP/1.1 port for metrics.
+      - targets: ['billing-service:8080']
+        labels:
+          service: 'billing'
+
   - job_name: 'ai-service'
     static_configs:
-      - targets: ['ai-service:5000']
-
-  - job_name: 'gateway'
-    static_configs:
-      - targets: ['api-gateway:4004']
+      - targets: ['ai-service:8080']
+        labels:
+          service: 'ai'

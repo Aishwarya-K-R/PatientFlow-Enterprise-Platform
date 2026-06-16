@@ -5,6 +5,7 @@ using Microsoft.Extensions.Caching.Memory;
 using PatientFlow.Patient.Data;
 using PatientFlow.Patient.Models;
 using PatientFlow.Common.Exceptions;
+using PatientFlow.Common.Metrics;
 using PatientFlow.Contracts.Events;
 
 namespace PatientFlow.Patient.Services;
@@ -47,6 +48,7 @@ public class PatientService(
         if (_memoryCache.TryGetValue(cacheKey, out Models.Patient? cachedPatient) && cachedPatient != null)
         {
             _logger.LogInformation("Patient with ID {Id} found in Memory Cache", id);
+            AppMetrics.RedisCacheHits.WithLabels("memory").Inc();
             return cachedPatient;
         }
 
@@ -59,11 +61,13 @@ public class PatientService(
             if (patientObj != null)
             {
                 _memoryCache.Set(cacheKey, patientObj, MemoryCacheOptions());
+                AppMetrics.RedisCacheHits.WithLabels("redis").Inc();
                 return patientObj;
             }
         }
 
         _logger.LogInformation("Redis Cache miss. Fetching patient with ID {Id} from Database", id);
+        AppMetrics.RedisCacheMisses.Inc();
         var patient = await _repo.GetByIdAsync(id) ?? throw new PatientNotFoundException(id);
 
         _logger.LogInformation("Found patient with ID {Id} in Database. Caching now", id);
@@ -115,6 +119,7 @@ public class PatientService(
             await _db.SaveChangesAsync();
 
             await tx.CommitAsync();
+            AppMetrics.PatientsCreated.Inc();
             return newPatient;
         }
         catch (DbUpdateException ex) when (ex.InnerException?.Message.Contains("IX_Patients_Email_Unique") == true)
@@ -160,6 +165,7 @@ public class PatientService(
         await _repo.UpdateAsync(existing, outboxMessage);
 
         InvalidateCaches(id);
+        AppMetrics.PatientsUpdated.Inc();
         return existing;
     }
 
@@ -175,6 +181,7 @@ public class PatientService(
         await _repo.DeleteAsync(existing, outboxMessage);
 
         InvalidateCaches(id);
+        AppMetrics.PatientsDeleted.Inc();
     }
 
     // -------------------------------------------------------------------

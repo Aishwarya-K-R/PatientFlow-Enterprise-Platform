@@ -1,6 +1,7 @@
 using BillingGrpc;
 using Grpc.Net.Client;
 using Polly;
+using PatientFlow.Common.Metrics;
 using PatientFlow.Common.Resilience;
 
 namespace PatientFlow.Patient.Services;
@@ -56,15 +57,26 @@ public class BillingGrpcClient
             PatientId = patientId
         };
 
-        // Execute gRPC call with Polly resilience pipeline
-        var response = await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+        try
         {
-            return await _client.CreateBillingAccountAsync(request);
-        });
+            // Execute gRPC call with Polly resilience pipeline
+            var response = await _resiliencePipeline.ExecuteAsync(async cancellationToken =>
+            {
+                return await _client.CreateBillingAccountAsync(request);
+            });
 
-        _logger.LogInformation("Billing account created with ID {AccountId} for Patient {PatientId}", 
-            response.AccountId, patientId);
+            _logger.LogInformation("Billing account created with ID {AccountId} for Patient {PatientId}",
+                response.AccountId, patientId);
 
-        return response;
+            return response;
+        }
+        catch (Exception)
+        {
+            // Resilience pipeline exhausted (timeouts/retries/circuit-breaker open).
+            // Count this as a failure once per call — the Polly retries inside the
+            // pipeline are NOT counted individually; this is a final-disposition metric.
+            AppMetrics.BillingFailures.Inc();
+            throw;
+        }
     }
 }

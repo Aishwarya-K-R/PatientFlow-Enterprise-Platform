@@ -223,6 +223,25 @@ services:
       - patientflow-network
 
   # ===========================================================================
+  # Observability - Prometheus (Metrics)
+  # ===========================================================================
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"   # Prometheus UI
+    networks:
+      - patientflow-network
+
+  # ===========================================================================
   # Observability - Grafana (Visualization)
   # ===========================================================================
   grafana:
@@ -240,6 +259,7 @@ services:
     depends_on:
       - tempo
       - loki
+      - prometheus
     networks:
       - patientflow-network
 
@@ -251,4 +271,5 @@ volumes:
   postgres-data:
   tempo-data:
   loki-data:
+  prometheus-data:
   grafana-data:

@@ -1,7 +1,9 @@
 using Microsoft.Extensions.Options;
 using PatientFlow.Contracts.Config;
+using PatientFlow.Common.Metrics;
 using PatientFlow.Common.Resilience;
 using Polly;
+using System.Diagnostics;
 using System.Text.Json;
 
 namespace PatientFlow.AI.Services;
@@ -35,6 +37,9 @@ public class LLMService
         _logger.LogInformation("Calling LLM with resilience policies: {Model} at {Endpoint}", 
             _settings.Model, _settings.Endpoint);
 
+        // Time the entire call (including resilience retries) so the histogram
+        // reflects user-visible latency, not just one HTTP attempt.
+        var stopwatch = Stopwatch.StartNew();
         try
         {
             // Execute HTTP call with Polly resilience pipeline
@@ -69,6 +74,11 @@ public class LLMService
         {
             _logger.LogError(ex, "LLM call failed after retries: {Message}", ex.Message);
             return $"LLM Error: {ex.Message}";
+        }
+        finally
+        {
+            stopwatch.Stop();
+            AppMetrics.LlmRequestDuration.Observe(stopwatch.Elapsed.TotalSeconds);
         }
     }
 }

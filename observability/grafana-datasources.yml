@@ -17,6 +17,15 @@ datasources:
         filterBySpanID: false
         customQuery: true
         query: '{service=~".+"} |= "$${__trace.traceId}"'
+      tracesToMetrics:
+        datasourceUid: prometheus
+        spanStartTimeShift: '-5m'
+        spanEndTimeShift: '5m'
+        queries:
+          - name: 'Request rate (by service)'
+            query: 'sum(rate(http_request_duration_seconds_count{job="$${__span.tags["service.name"]}"}[5m])) by (job)'
+          - name: 'p95 latency (by service)'
+            query: 'histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, job))'
       nodeGraph:
         enabled: true
 
@@ -34,3 +43,15 @@ datasources:
           url: '$${__value.raw}'
           datasourceUid: tempo
           urlDisplayLabel: 'View trace in Tempo'
+
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    editable: true
+    jsonData:
+      timeInterval: '5s'
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo
