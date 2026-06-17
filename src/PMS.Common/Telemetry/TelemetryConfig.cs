@@ -29,6 +29,17 @@ public static class TelemetryConfig
                     {
                         options.RecordException = true;
 
+                        // Don't create spans for noise endpoints - Prometheus hits
+                        // /metrics every 5s on every service, which floods Tempo
+                        // with thousands of useless traces and crowds out real ones.
+                        options.Filter = httpContext =>
+                        {
+                            var path = httpContext.Request.Path.Value;
+                            if (string.IsNullOrEmpty(path)) return true;
+                            return !path.StartsWith("/metrics", StringComparison.OrdinalIgnoreCase)
+                                && !path.StartsWith("/health", StringComparison.OrdinalIgnoreCase);
+                        };
+
                         // Enrich span with actual HTTP path instead of route template
                         options.EnrichWithHttpRequest = (activity, httpRequest) =>
                         {
