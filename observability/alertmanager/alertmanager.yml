@@ -1,0 +1,64 @@
+global:
+  resolve_timeout: 5m
+
+# ===========================================================================
+# Routing tree - Alertmanager walks this top-to-bottom and picks the first
+# match. 'continue: false' (default) stops at the first match.
+# ===========================================================================
+route:
+  # Group alerts that share these labels into a single notification.
+  # This is what stops you getting 50 emails when an entire service falls over.
+  group_by: ['alertname', 'service']
+  group_wait: 30s        # Wait 30s for more alerts in a group before firing first one
+  group_interval: 5m     # Then send updates at most every 5m
+  repeat_interval: 4h    # Re-page if still firing after 4h
+
+  receiver: default-webhook
+
+  routes:
+    # Critical alerts page fast and don't wait around for grouping.
+    - matchers:
+        - severity = critical
+      receiver: critical-webhook
+      group_wait: 10s
+      repeat_interval: 1h
+
+    # Info alerts are batched aggressively - they're FYI, not actionable.
+    - matchers:
+        - severity = info
+      receiver: info-webhook
+      group_wait: 2m
+      group_interval: 30m
+      repeat_interval: 24h
+
+# ===========================================================================
+# Receivers - in production this is Slack/PagerDuty/email. For local dev we
+# use webhooks so the whole pipeline is exercised end-to-end. Point any of
+# these at https://webhook.site/your-unique-url to see alerts arrive live.
+# ===========================================================================
+receivers:
+  - name: default-webhook
+    webhook_configs:
+      - url: http://host.docker.internal:5555/alerts/default
+        send_resolved: true
+
+  - name: critical-webhook
+    webhook_configs:
+      - url: http://host.docker.internal:5555/alerts/critical
+        send_resolved: true
+
+  - name: info-webhook
+    webhook_configs:
+      - url: http://host.docker.internal:5555/alerts/info
+        send_resolved: true
+
+# ===========================================================================
+# Inhibition - if a service is down, don't also page about its latency.
+# The down alert already tells the whole story.
+# ===========================================================================
+inhibit_rules:
+  - source_matchers:
+      - alertname = ServiceDown
+    target_matchers:
+      - severity =~ "warning|info"
+    equal: ['service']

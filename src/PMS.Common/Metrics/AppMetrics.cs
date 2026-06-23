@@ -91,4 +91,18 @@ public static class AppMetrics
         {
             LabelNames = new[] { "topic" }
         });
+
+    // -------------------------------------------------------------------
+    // Outbox backlog
+    // -------------------------------------------------------------------
+    // Gauge (not counter) - it goes up AND down as messages get published.
+    // Set by each service's OutboxPublisherService on every poll iteration.
+    // Used by the OutboxBacklog alert to detect Kafka publish stalls.
+    public static readonly Gauge OutboxPendingMessages = Prometheus.Metrics.CreateGauge(
+        "outbox_pending_messages",
+        "Number of unpublished outbox rows currently waiting to be sent to Kafka.",
+        new GaugeConfiguration
+        {
+            LabelNames = new[] { "service" }
+        });
 }

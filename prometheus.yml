@@ -1,5 +1,18 @@
 global:
   scrape_interval: 5s
+  evaluation_interval: 15s   # How often Prometheus checks alert rules
+
+# Alert rules are evaluated at evaluation_interval. When an expression
+# stays true for the rule's 'for:' duration, the alert FIRES and is sent
+# to every Alertmanager listed below.
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
 
 scrape_configs:
   # All services expose /metrics on their internal Kestrel port (8080)

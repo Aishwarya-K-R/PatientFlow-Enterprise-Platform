@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using PatientFlow.Patient.Data;
 using PatientFlow.Common.Kafka;
+using PatientFlow.Common.Metrics;
 
 namespace PatientFlow.Patient.Services;
 
@@ -44,6 +45,12 @@ public class OutboxPublisherService : BackgroundService
         using var scope = _serviceProvider.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<PatientDbContext>();
         var kafkaProducer = scope.ServiceProvider.GetRequiredService<KafkaProducer>();
+
+        // Report total backlog (not just this batch) so the OutboxBacklog alert
+        // can detect Kafka publish stalls even when Take(100) is saturated.
+        var pendingCount = await context.OutboxMessages
+            .CountAsync(m => !m.IsPublished && m.RetryCount < 5, stoppingToken);
+        AppMetrics.OutboxPendingMessages.WithLabels("patient").Set(pendingCount);
 
         var unpublishedMessages = await context.OutboxMessages
             .Where(m => !m.IsPublished && m.RetryCount < 5)

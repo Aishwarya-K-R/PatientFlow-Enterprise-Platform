@@ -235,9 +235,32 @@ services:
       - '--web.enable-lifecycle'
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml
       - prometheus-data:/prometheus
     ports:
       - "9090:9090"   # Prometheus UI
+    depends_on:
+      - alertmanager
+    networks:
+      - patientflow-network
+
+  # ===========================================================================
+  # Observability - Alertmanager (Alert routing + notifications)
+  # ===========================================================================
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    volumes:
+      - ./observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+      - alertmanager-data:/alertmanager
+    ports:
+      - "9093:9093"   # Alertmanager UI
+    extra_hosts:
+      # Lets the container reach a webhook listener on the host machine
+      - "host.docker.internal:host-gateway"
     networks:
       - patientflow-network
 
@@ -276,4 +299,5 @@ volumes:
   tempo-data:
   loki-data:
   prometheus-data:
+  alertmanager-data:
   grafana-data:
