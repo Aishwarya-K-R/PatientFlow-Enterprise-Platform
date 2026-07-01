@@ -21,7 +21,11 @@ builder.Configuration
 builder.Services.AddOpenTelemetryTracing(builder.Configuration, "Patient-Service");
 
 builder.Services.AddDbContext<PatientDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseNpgsql(
+        builder.Configuration.GetConnectionString("DefaultConnection"),
+        // Tell Npgsql about pgvector so it knows how to map the `vector` type
+        // in both directions (read query results into Pgvector.Vector and vice versa).
+        o => o.UseVector()));
 
 builder.Services.AddMemoryCache();
 builder.Services.AddStackExchangeRedisCache(options =>

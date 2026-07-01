@@ -39,17 +39,17 @@ route:
 receivers:
   - name: default-webhook
     webhook_configs:
-      - url: http://host.docker.internal:5555/alerts/default
+      - url: https://webhook.site/9e377b15-0bb6-4efa-a2b7-52c6fe4a1a04/alerts/default
         send_resolved: true
 
   - name: critical-webhook
     webhook_configs:
-      - url: http://host.docker.internal:5555/alerts/critical
+      - url: https://webhook.site/9e377b15-0bb6-4efa-a2b7-52c6fe4a1a04/alerts/critical
         send_resolved: true
 
   - name: info-webhook
     webhook_configs:
-      - url: http://host.docker.internal:5555/alerts/info
+      - url: https://webhook.site/9e377b15-0bb6-4efa-a2b7-52c6fe4a1a04/alerts/info
         send_resolved: true
 
 # ===========================================================================

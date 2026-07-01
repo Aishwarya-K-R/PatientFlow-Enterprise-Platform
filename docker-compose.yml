@@ -3,7 +3,9 @@ services:
   # Infrastructure
   # ===========================================================================
   postgres:
-    image: postgres:16
+    # pgvector/pgvector image = plain postgres:16 + the pgvector extension pre-installed.
+    # Same data directory layout as postgres:16, so existing volumes work unchanged.
+    image: pgvector/pgvector:pg16
     container_name: postgres
     restart: unless-stopped
     environment:
