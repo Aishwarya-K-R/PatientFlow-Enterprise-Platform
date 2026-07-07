@@ -79,11 +79,12 @@ public class PatientEventHandler(
     /// Generates an embedding for the patient via Ollama and hands the vector
     /// to the store. All text sent to Ollama is pre-pseudonymised by PhiRedactor
     /// so no real name/email/street ever leaves the AI service memory.
-    /// Failures here are logged but do NOT fail the outer event - a missing
-    /// embedding is a degraded state we recover from on the next update, not a
-    /// reason to redeliver the whole event and re-do the Redis work.
+    /// Failures here are logged but do NOT throw - a missing embedding is a
+    /// degraded state we recover from on the next update, not a reason to
+    /// redeliver the whole Kafka event or abort the outer backfill loop.
+    /// Returns true if a vector was persisted, false otherwise.
     /// </summary>
-    private async Task RefreshEmbeddingAsync(PatientDto patient, CancellationToken cancellationToken)
+    public async Task<bool> RefreshEmbeddingAsync(PatientDto patient, CancellationToken cancellationToken)
     {
         try
         {
@@ -94,15 +95,17 @@ public class PatientEventHandler(
             {
                 _logger.LogWarning("Empty embedding for patient {Pseudonym}; not persisting",
                     PhiRedactor.Pseudonym(patient.Id));
-                return;
+                return false;
             }
 
-            await _embeddingStore.UpsertAsync(patient.Id, sourceText, vector, _aiSettings.EmbeddingModel, cancellationToken);
+            return await _embeddingStore.UpsertAsync(
+                patient.Id, sourceText, vector, _aiSettings.EmbeddingModel, cancellationToken);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Embedding refresh failed for patient {Pseudonym}",
                 PhiRedactor.Pseudonym(patient.Id));
+            return false;
         }
     }
 }

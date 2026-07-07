@@ -92,6 +92,33 @@ public class PatientController(
     }
 
     /// <summary>
+    /// Internal endpoint used by the AI service startup backfill to discover
+    /// patients that don't yet have a stored embedding. Returns just the ids
+    /// (the AI service will call GET /api/patient/{id} for each to build the
+    /// same PatientDto the Kafka handler uses, so a single code path owns the
+    /// PhiRedactor -> Ollama -> pgvector flow).
+    /// Bounded by <c>limit</c> so a huge legacy corpus is processed across
+    /// several restarts rather than in one giant batch.
+    /// Auth: ADMIN JWT or internal API key (same rule as the other embedding endpoints).
+    /// </summary>
+    [Authorize(Roles = "ADMIN")]
+    [HttpGet("patients/missing-embeddings")]
+    public async Task<ActionResult> GetPatientsMissingEmbeddings([FromQuery] int limit = 500)
+    {
+        // Cap the limit to avoid a caller asking for the whole table by
+        // mistake - startup backfill is meant to be a controlled trickle.
+        var effectiveLimit = Math.Clamp(limit, 1, 5000);
+
+        var ids = await _patientEmbeddingService.GetPatientIdsMissingEmbeddingAsync(effectiveLimit);
+
+        _logger.LogInformation(
+            "Missing-embedding scan returned {Count} patient ids (limit={Limit})",
+            ids.Count, effectiveLimit);
+
+        return Ok(new { count = ids.Count, patientIds = ids });
+    }
+
+    /// <summary>
     /// Internal endpoint used by the AI service to persist an embedding vector
     /// for a patient. Auth is enforced via InternalApiKeyMiddleware (which
     /// promotes the caller to ADMIN when the shared key matches) plus the

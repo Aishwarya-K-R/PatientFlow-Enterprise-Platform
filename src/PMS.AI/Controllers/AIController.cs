@@ -94,4 +94,33 @@ public class AIController(
             return StatusCode(500, new { error = "Cache warmup failed", details = ex.Message });
         }
     }
+
+    /// <summary>
+    /// Admin endpoint to force an embedding backfill pass. Independent of
+    /// warmup - only touches pgvector (via the Patient service) and Ollama.
+    /// Idempotent by construction: patients that already have a vector row
+    /// are excluded from the scan, so repeated calls converge to a no-op.
+    /// </summary>
+    [Authorize(Roles = "ADMIN")]
+    [HttpPost("admin/backfill-embeddings")]
+    public async Task<IActionResult> BackfillEmbeddings()
+    {
+        _logger.LogInformation("Manual embedding backfill triggered by admin");
+
+        try
+        {
+            await _warmupService.BackfillMissingEmbeddingsAsync(HttpContext.RequestAborted);
+            return Ok(new { message = "Embedding backfill completed. Check logs for per-patient outcomes." });
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Backfill failed - Patient Service unreachable");
+            return StatusCode(503, new { error = "Patient Service unavailable" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Embedding backfill failed");
+            return StatusCode(500, new { error = "Embedding backfill failed", details = ex.Message });
+        }
+    }
 }

@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Options;
+using PatientFlow.Contracts.Config;
 using PatientFlow.Contracts.Dtos;
 
 namespace PatientFlow.AI.Services;
@@ -13,6 +15,9 @@ namespace PatientFlow.AI.Services;
 /// - Startup    : Full snapshot via HTTP GET /api/patients/all
 /// - Runtime    : Incremental updates via Kafka events (PatientEventsConsumer)
 /// - Admin      : Manual re-warm via POST /ai/admin/warmup
+///
+/// Startup also runs a bounded pgvector backfill so patients imported before
+/// the embedding pipeline existed become searchable without waiting for an edit.
 /// </summary>
 public class AiCacheWarmupService : BackgroundService
 {
@@ -33,6 +38,10 @@ public class AiCacheWarmupService : BackgroundService
     // Progress logging cadence during bulk warmup.
     private const int ProgressLogEvery = 100;
 
+    // Backfill logs every N patients instead of every 100 - Ollama is much
+    // slower than Redis, so smaller batches keep the operator informed.
+    private const int BackfillProgressLogEvery = 25;
+
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<AiCacheWarmupService> _logger;
 
@@ -50,6 +59,7 @@ public class AiCacheWarmupService : BackgroundService
 
         await Task.Delay(StartupDelay, stoppingToken);
         await WarmupCacheAsync(stoppingToken);
+        await BackfillMissingEmbeddingsAsync(stoppingToken);
 
         _logger.LogInformation("AI Cache Warmup Service completed");
     }
@@ -135,6 +145,111 @@ public class AiCacheWarmupService : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unexpected error during warmup: {Message}", ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Backfill pass for pgvector: pull the ids of patients that have no
+    /// embedding row yet and drive each one through the shared
+    /// PatientEventHandler pipeline so semantic search covers historical
+    /// data too. Bounded by AISettings.EmbeddingBackfillMaxPerRun so a huge
+    /// cold database is caught up across several restarts instead of pinning
+    /// Ollama for hours during the first boot.
+    ///
+    /// Idempotency comes from the query itself - once a patient has a row in
+    /// PatientEmbeddings they stop appearing in the "missing" list, so
+    /// repeated runs converge to a no-op.
+    /// </summary>
+    public async Task BackfillMissingEmbeddingsAsync(CancellationToken cancellationToken = default)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var aiSettings = scope.ServiceProvider.GetRequiredService<IOptions<AISettings>>().Value;
+
+        if (!aiSettings.EmbeddingBackfillEnabled)
+        {
+            _logger.LogInformation("Embedding backfill disabled by config; skipping");
+            return;
+        }
+
+        var patientClient = scope.ServiceProvider.GetRequiredService<PatientServiceClient>();
+        var handler = scope.ServiceProvider.GetRequiredService<PatientEventHandler>();
+
+        try
+        {
+            var limit = aiSettings.EmbeddingBackfillMaxPerRun;
+            _logger.LogInformation("Starting embedding backfill (limit={Limit})", limit);
+
+            var missingIds = await patientClient.GetPatientIdsMissingEmbeddingAsync(limit, cancellationToken);
+
+            if (missingIds.Count == 0)
+            {
+                _logger.LogInformation("No patients missing embeddings; backfill is up to date");
+                return;
+            }
+
+            _logger.LogInformation(
+                "Backfilling embeddings for {Count} patient(s). This runs sequentially against Ollama.",
+                missingIds.Count);
+
+            var succeeded = 0;
+            var failed = 0;
+
+            foreach (var patientId in missingIds)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    _logger.LogWarning("Backfill cancelled after {Done}/{Total}",
+                        succeeded + failed, missingIds.Count);
+                    break;
+                }
+
+                try
+                {
+                    // Fetch the full DTO so BuildEmbeddingText has the same
+                    // fields the Kafka path sees (name, DOB, address, medical
+                    // history). Skip if the patient vanished between the id
+                    // scan and now (rare but possible under concurrent delete).
+                    var patient = await patientClient.GetPatientByIdAsync(patientId, cancellationToken);
+                    if (patient == null)
+                    {
+                        _logger.LogInformation(
+                            "Patient {PatientId} disappeared during backfill; skipping", patientId);
+                        continue;
+                    }
+
+                    var ok = await handler.RefreshEmbeddingAsync(patient, cancellationToken);
+                    if (ok) succeeded++; else failed++;
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    _logger.LogError(ex, "Backfill failed for patient {PatientId}", patientId);
+                }
+
+                var done = succeeded + failed;
+                if (done % BackfillProgressLogEvery == 0)
+                {
+                    _logger.LogInformation(
+                        "Backfill progress: {Done}/{Total} ({Succeeded} ok, {Failed} failed)",
+                        done, missingIds.Count, succeeded, failed);
+                }
+            }
+
+            _logger.LogInformation(
+                "Embedding backfill finished. Succeeded={Succeeded}, Failed={Failed}, Total={Total}. " +
+                "Remaining unindexed patients (if any) will be processed on the next restart.",
+                succeeded, failed, missingIds.Count);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex,
+                "Failed to reach Patient Service during embedding backfill: {Message}. " +
+                "Backfill will retry on next AI service startup.",
+                ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error during embedding backfill: {Message}", ex.Message);
         }
     }
 

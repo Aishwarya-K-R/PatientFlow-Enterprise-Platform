@@ -20,6 +20,36 @@ public class PatientEmbeddingService(
     private readonly ILogger<PatientEmbeddingService> _logger = logger;
 
     /// <summary>
+    /// Return the ids of patients that do NOT yet have an embedding row.
+    /// Used by AI service startup backfill: patients imported before
+    /// pgvector was introduced (or before the AI service was up) have
+    /// no vector and are therefore invisible to semantic search until
+    /// this list is drained.
+    /// Bounded by <paramref name="limit"/> so a huge legacy corpus is
+    /// processed across successive restarts rather than in one giant batch.
+    /// </summary>
+    public async Task<List<int>> GetPatientIdsMissingEmbeddingAsync(
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        if (limit <= 0)
+        {
+            return new List<int>();
+        }
+
+        // LEFT JOIN Patients -> PatientEmbeddings, filter to those with no
+        // matching embedding row. Ordered by Id so multiple runs process the
+        // same subset deterministically.
+        return await _db.Patients
+            .AsNoTracking()
+            .Where(p => !_db.PatientEmbeddings.Any(e => e.PatientId == p.Id))
+            .OrderBy(p => p.Id)
+            .Select(p => p.Id)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>
     /// Insert-or-update the embedding row for a patient. If the patient does
     /// not exist we skip - trying to insert a child row with no parent would
     /// hit the FK constraint anyway. Returns true if a row was written.

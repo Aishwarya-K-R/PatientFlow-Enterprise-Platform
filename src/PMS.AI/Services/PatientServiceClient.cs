@@ -83,4 +83,39 @@ public class PatientServiceClient
             throw;
         }
     }
+
+    /// <summary>
+    /// Fetch the ids of patients that don't yet have a stored embedding.
+    /// Used by the AI service startup backfill so patients imported before
+    /// pgvector was wired up become discoverable via semantic search without
+    /// requiring an edit event to trigger indexing.
+    /// The Patient service caps the response internally (see the controller),
+    /// so the returned list is bounded even if <paramref name="limit"/> is huge.
+    /// </summary>
+    public async Task<List<int>> GetPatientIdsMissingEmbeddingAsync(
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync(
+            $"/api/patients/missing-embeddings?limit={limit}", cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new HttpRequestException(
+                $"Failed to fetch missing-embedding ids: {response.StatusCode} - {error}");
+        }
+
+        var payload = await response.Content.ReadFromJsonAsync<MissingEmbeddingsResponse>(
+            cancellationToken: cancellationToken);
+
+        return payload?.PatientIds ?? new List<int>();
+    }
+
+    // Wire-shape matches the anonymous object the Patient controller returns.
+    private sealed class MissingEmbeddingsResponse
+    {
+        public int Count { get; set; }
+        public List<int> PatientIds { get; set; } = new();
+    }
 }
