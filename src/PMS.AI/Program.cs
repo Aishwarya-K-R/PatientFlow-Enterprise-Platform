@@ -31,6 +31,7 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 
 builder.Services.AddSingleton<RedisService>();
 builder.Services.AddHttpClient<LLMService>();
+builder.Services.AddHttpClient<EmbeddingService>();
 
 // Typed HttpClient for Patient Service (service-to-service communication)
 builder.Services.AddHttpClient<PatientServiceClient>(client =>
@@ -47,9 +48,35 @@ builder.Services.AddHttpClient<PatientServiceClient>(client =>
     }
 });
 
+// PatientEmbeddingStore posts vectors back to the Patient service. It shares
+// the same base URL and internal auth key as PatientServiceClient - the two
+// clients are kept separate so their responsibilities (read all vs write one)
+// stay decoupled and we can swap transports for either independently.
+builder.Services.AddHttpClient<PatientEmbeddingStore>(client =>
+{
+    var baseUrl = builder.Configuration["PatientService:BaseUrl"] ?? "http://patient-service:8080";
+    client.BaseAddress = new Uri(baseUrl);
+    client.Timeout = TimeSpan.FromSeconds(30);
+
+    var internalKey = builder.Configuration["PatientService:InternalApiKey"];
+    if (!string.IsNullOrEmpty(internalKey))
+    {
+        client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalKey);
+    }
+});
+
 // Register warmup service (Background + injectable for admin endpoint)
 builder.Services.AddSingleton<AiCacheWarmupService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<AiCacheWarmupService>());
+
+// PHI redaction - single source of truth for turning a PatientDto into
+// a pseudonymised, embedding-safe string. Stateless => singleton.
+builder.Services.AddSingleton<PhiRedactor>();
+
+// Shared handler used by every patient Kafka consumer. Scoped so it can
+// capture per-message DbContext / HttpClient lifetimes cleanly when the
+// consumer opens a scope per message.
+builder.Services.AddScoped<PatientEventHandler>();
 
 // Register Kafka consumers (incremental updates after initial warmup)
 builder.Services.AddHostedService<PatientEventsConsumer>();

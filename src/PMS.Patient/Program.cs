@@ -36,6 +36,7 @@ builder.Services.AddStackExchangeRedisCache(options =>
 
 builder.Services.AddScoped<IPatientRepository, PatientRepository>();
 builder.Services.AddScoped<PatientService>();
+builder.Services.AddScoped<PatientEmbeddingService>();
 builder.Services.AddSingleton<KafkaProducer>();
 builder.Services.AddSingleton<BillingGrpcClient>();
 builder.Services.AddHostedService<OutboxPublisherService>();

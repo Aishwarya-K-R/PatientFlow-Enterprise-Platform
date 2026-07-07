@@ -64,6 +64,7 @@ public class AiCacheWarmupService : BackgroundService
         using var scope = _serviceProvider.CreateScope();
         var redis = scope.ServiceProvider.GetRequiredService<RedisService>();
         var patientClient = scope.ServiceProvider.GetRequiredService<PatientServiceClient>();
+        var redactor = scope.ServiceProvider.GetRequiredService<PhiRedactor>();
 
         try
         {
@@ -97,7 +98,7 @@ public class AiCacheWarmupService : BackgroundService
                     // warmed entries would be invisible to AIController.GetAllPatientContextsAsync.
                     // No TTL on individual entries — Kafka events drive invalidation
                     // (PatientUpdated overwrites, PatientDeleted clears).
-                    await redis.SetPatientContextAsync(patient.Id, BuildPatientContext(patient));
+                    await redis.SetPatientContextAsync(patient.Id, redactor.BuildContext(patient));
 
                     loaded++;
 
@@ -139,27 +140,8 @@ public class AiCacheWarmupService : BackgroundService
 
     /// <summary>
     /// Build the pseudonymised context string an LLM will see for a single patient.
-    /// PHI minimisation: never include real name, email, or address in the LLM prompt.
-    /// This restores the rule established in Phase 0's ContextService.
+    /// Delegates to PhiRedactor - the single source of truth for PHI-safe strings.
     /// </summary>
-    private static string BuildPatientContext(PatientDto patient)
-    {
-        var age = CalculateAge(patient.DateOfBirth);
-        var pseudonym = $"P-{patient.Id:D5}";
-        return $"Patient: {pseudonym}, Age: {age}";
-    }
-
-    private static int CalculateAge(DateOnly dateOfBirth)
-    {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var age = today.Year - dateOfBirth.Year;
-        if (dateOfBirth > today.AddYears(-age))
-        {
-            age--;
-        }
-        return age;
-    }
-
     private static async Task<bool> IsAlreadyInitialisedAsync(RedisService redis)
     {
         var value = await redis.GetPatientContextAsync(InitializedFlagKey);

@@ -92,7 +92,8 @@ public class PatientService(
             Email = patient.Email,
             Address = patient.Address,
             DateOfBirth = patient.DateOfBirth,
-            RegisteredDate = patient.RegisteredDate
+            RegisteredDate = patient.RegisteredDate,
+            MedicalHistory = patient.MedicalHistory
         };
 
         // Saga: patient row + Billing gRPC call + outbox event must all succeed
@@ -151,6 +152,7 @@ public class PatientService(
         existing.Address = patient.Address;
         existing.DateOfBirth = patient.DateOfBirth;
         existing.RegisteredDate = patient.RegisteredDate;
+        existing.MedicalHistory = patient.MedicalHistory;
 
         var outboxMessage = BuildOutboxMessage(
             topicKey: "Kafka:PatientUpdatedTopic",

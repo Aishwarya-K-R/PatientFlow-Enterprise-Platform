@@ -1,12 +1,17 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using PatientFlow.Common.Kafka;
 using PatientFlow.Contracts.Events;
 
 namespace PatientFlow.AI.Services;
 
 /// <summary>
-/// Consumes patient events and updates Redis context for AI queries.
-/// Uses manual offset commit to prevent message loss.
+/// Consumes the patient-created topic, dedupes by EventId, and delegates the
+/// actual Redis + pgvector work to PatientEventHandler so the logic is shared
+/// with the other patient consumers (updated / deleted / retry).
+///
+/// Kept as its own class (rather than a single omnibus consumer) because
+/// KafkaConsumerBase is intentionally single-topic, and each consumer needs
+/// its own consumer group so Kafka tracks offsets independently.
 /// </summary>
 public class PatientEventsConsumer : KafkaConsumerBase<PatientCreatedEvent>
 {
@@ -38,87 +43,47 @@ public class PatientEventsConsumer : KafkaConsumerBase<PatientCreatedEvent>
             _logger.LogInformation("Processing event {EventType} with ID {EventId}",
                 envelope.EventType, envelope.EventId);
 
-            // Check for duplicates using EventId
             using var scope = _serviceProvider.CreateScope();
             var redis = scope.ServiceProvider.GetRequiredService<RedisService>();
+            var handler = scope.ServiceProvider.GetRequiredService<PatientEventHandler>();
 
-            // Simple deduplication: Check if we've seen this EventId
+            // Idempotency: return true (commit) if we've already handled this EventId.
             var cacheKey = $"processed_event:{envelope.EventId}";
-            var alreadyProcessed = await redis.GetPatientContextAsync(cacheKey);
-
-            if (alreadyProcessed != null)
+            if (await redis.GetPatientContextAsync(cacheKey) != null)
             {
                 _logger.LogInformation("Event {EventId} already processed, skipping", envelope.EventId);
-                return true; // Return true to commit offset (idempotent processing)
+                return true;
             }
 
-            // Process based on event type — case labels use EventTypes constants
-            // (defined in PatientFlow.Contracts.Events) instead of magic strings.
-            switch (envelope.EventType)
+            if (envelope.EventType != EventTypes.PatientCreated)
             {
-                case EventTypes.PatientCreated:
-                    var patientCreated = JsonSerializer.Deserialize<PatientCreatedEvent>(
-                        envelope.Payload.ToString()!);
-                    if (patientCreated != null)
-                    {
-                        await HandlePatientCreatedAsync(redis, patientCreated);
-                    }
-                    break;
-
-                case EventTypes.PatientUpdated:
-                    var patientUpdated = JsonSerializer.Deserialize<PatientUpdatedEvent>(
-                        envelope.Payload.ToString()!);
-                    if (patientUpdated != null)
-                    {
-                        await HandlePatientUpdatedAsync(redis, patientUpdated);
-                    }
-                    break;
-
-                case EventTypes.PatientDeleted:
-                    var patientDeleted = JsonSerializer.Deserialize<PatientDeletedEvent>(
-                        envelope.Payload.ToString()!);
-                    if (patientDeleted != null)
-                    {
-                        await HandlePatientDeletedAsync(redis, patientDeleted);
-                    }
-                    break;
-
-                default:
-                    _logger.LogWarning("Unknown event type: {EventType}", envelope.EventType);
-                    return true; // Skip unknown events
+                // PatientUpdated / PatientDeleted flow through their own dedicated
+                // consumers on their own topics - seeing them here would mean a
+                // publisher misconfiguration. Skip cleanly instead of retrying.
+                _logger.LogWarning("Unexpected event type {EventType} on patient-created topic; skipping",
+                    envelope.EventType);
+                return true;
             }
 
-            // Mark event as processed (with 7 day expiration)
-            await redis.SetPatientContextAsync(cacheKey, "processed", TimeSpan.FromDays(7));
+            var evt = JsonSerializer.Deserialize<PatientCreatedEvent>(envelope.Payload.ToString()!);
+            if (evt == null)
+            {
+                _logger.LogWarning("Failed to deserialize PatientCreatedEvent for event {EventId}",
+                    envelope.EventId);
+                return true;
+            }
 
+            await handler.HandleChangedAsync(evt.PatientId, "created", cancellationToken);
+
+            await redis.SetPatientContextAsync(cacheKey, "processed", TimeSpan.FromDays(7));
             _logger.LogInformation("Successfully processed event {EventId}", envelope.EventId);
-            return true; // Success - commit offset
+            return true;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error processing event {EventId}: {Message}",
                 envelope.EventId, ex.Message);
-            return false; // Failure - don't commit, will retry
+            return false;
         }
-    }
-
-    private async Task HandlePatientCreatedAsync(RedisService redis, PatientCreatedEvent evt)
-    {
-        var context = $"Patient {evt.PatientId} ({evt.Name}) created with email {evt.Email}";
-        await redis.SetPatientContextAsync($"patient:{evt.PatientId}", context, TimeSpan.FromHours(24));
-        _logger.LogInformation("Updated context for patient {PatientId}", evt.PatientId);
-    }
-
-    private async Task HandlePatientUpdatedAsync(RedisService redis, PatientUpdatedEvent evt)
-    {
-        var context = $"Patient {evt.PatientId} ({evt.Name}) updated, email: {evt.Email}";
-        await redis.SetPatientContextAsync($"patient:{evt.PatientId}", context, TimeSpan.FromHours(24));
-        _logger.LogInformation("Updated context for patient {PatientId}", evt.PatientId);
-    }
-
-    private async Task HandlePatientDeletedAsync(RedisService redis, PatientDeletedEvent evt)
-    {
-        await redis.DeletePatientContextAsync($"patient:{evt.PatientId}");
-        _logger.LogInformation("Removed context for deleted patient {PatientId}", evt.PatientId);
     }
 }

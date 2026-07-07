@@ -50,4 +50,37 @@ public class PatientServiceClient
             throw;
         }
     }
+
+    /// <summary>
+    /// Fetch a single patient by id. Used by the embedding pipeline to
+    /// build a richer source text than what the Kafka event carries
+    /// (events only have Id, Name, Email - not address / DOB).
+    /// Returns null on 404 so callers can decide whether that's fatal.
+    /// </summary>
+    public async Task<PatientDto?> GetPatientByIdAsync(int id, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"/api/patient/{id}", cancellationToken);
+
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return null;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync(cancellationToken);
+                throw new HttpRequestException(
+                    $"Failed to fetch patient {id}: {response.StatusCode} - {error}");
+            }
+
+            return await response.Content.ReadFromJsonAsync<PatientDto>(cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching patient {PatientId} from Patient Service", id);
+            throw;
+        }
+    }
 }
