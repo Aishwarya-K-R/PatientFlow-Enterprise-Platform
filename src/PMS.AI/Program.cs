@@ -73,14 +73,19 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<AiCacheWarmupServi
 // a pseudonymised, embedding-safe string. Stateless => singleton.
 builder.Services.AddSingleton<PhiRedactor>();
 
-// Shared handler used by every patient Kafka consumer. Scoped so it can
-// capture per-message DbContext / HttpClient lifetimes cleanly when the
-// consumer opens a scope per message.
+// Shared handler used by every patient Kafka consumer (created / updated /
+// deleted / retry). Scoped so it can capture per-message DbContext / HttpClient
+// lifetimes cleanly when the consumer opens a scope per message.
 builder.Services.AddScoped<PatientEventHandler>();
 
-// Register Kafka consumers (incremental updates after initial warmup)
-builder.Services.AddHostedService<PatientEventsConsumer>();
-builder.Services.AddHostedService<PatientEventsRetryConsumer>();
+// Register Kafka consumers (incremental updates after initial warmup).
+// One hosted service per topic so each has its own consumer group and Kafka
+// tracks offsets independently. Adding a new event type = add a new consumer.
+builder.Services.AddHostedService<PatientEventsConsumer>();          // patient-created
+builder.Services.AddHostedService<PatientEventsRetryConsumer>();     // patient-created-retry
+builder.Services.AddHostedService<PatientUpdatedConsumer>();         // patient-updated
+builder.Services.AddHostedService<PatientDeletedConsumer>();         // patient-deleted
+builder.Services.AddHostedService<BillingCreatedConsumer>();         // billing-created
 
 builder.Host.UseSerilog((context, config) =>
     config.ReadFrom.Configuration(context.Configuration));
