@@ -65,6 +65,25 @@ builder.Services.AddHttpClient<PatientEmbeddingStore>(client =>
     }
 });
 
+// VectorSearchService turns a question into a top-K set of patient ids via
+// pgvector cosine search. Same base URL + internal key story as the other
+// Patient-service clients so the auth story is uniform.
+builder.Services.AddHttpClient<VectorSearchService>(client =>
+{
+    var baseUrl = builder.Configuration["PatientService:BaseUrl"] ?? "http://patient-service:8080";
+    client.BaseAddress = new Uri(baseUrl);
+    // A vector search issues one Ollama embedding call + one DB query. Keep
+    // the timeout generous enough to cover a warm Ollama call (< 1s) plus
+    // pgvector index scan on a large corpus.
+    client.Timeout = TimeSpan.FromSeconds(30);
+
+    var internalKey = builder.Configuration["PatientService:InternalApiKey"];
+    if (!string.IsNullOrEmpty(internalKey))
+    {
+        client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalKey);
+    }
+});
+
 // Register warmup service (Background + injectable for admin endpoint)
 builder.Services.AddSingleton<AiCacheWarmupService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<AiCacheWarmupService>());

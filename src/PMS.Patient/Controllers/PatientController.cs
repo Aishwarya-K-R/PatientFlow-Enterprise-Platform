@@ -159,6 +159,42 @@ public class PatientController(
     }
 
     /// <summary>
+    /// Cosine-similarity nearest-neighbour search over PatientEmbeddings.
+    /// The AI service calls this after embedding a natural-language question
+    /// so it can pull just the most relevant patients into an LLM prompt
+    /// instead of dumping the whole corpus.
+    /// Body carries the query vector (dimension must match the stored vectors,
+    /// currently 768 for nomic-embed-text). Response is a list of
+    /// {patientId, distance} ordered ascending by cosine distance (smaller
+    /// distance = closer match, 0.0 = identical).
+    /// Same dual-auth rule as the other embedding endpoints.
+    /// </summary>
+    [Authorize(Roles = "ADMIN")]
+    [HttpPost("patients/vector-search")]
+    public async Task<ActionResult> VectorSearch([FromBody] VectorSearchRequest request)
+    {
+        if (request?.QueryVector == null || request.QueryVector.Length == 0)
+        {
+            return BadRequest(new { message = "QueryVector must not be empty" });
+        }
+
+        // Cap topK so a caller can't accidentally scan the whole table.
+        var topK = Math.Clamp(request.TopK <= 0 ? 5 : request.TopK, 1, 50);
+
+        var matches = await _patientEmbeddingService.SearchNearestAsync(request.QueryVector, topK);
+
+        _logger.LogInformation(
+            "Vector search returned {Count} matches (topK={TopK}, dims={Dims})",
+            matches.Count, topK, request.QueryVector.Length);
+
+        return Ok(new
+        {
+            count = matches.Count,
+            results = matches.Select(m => new { patientId = m.PatientId, distance = m.Distance })
+        });
+    }
+
+    /// <summary>
     /// Request DTO for the internal embedding upsert endpoint.
     /// Kept as a nested type to keep the wire contract co-located with the endpoint.
     /// </summary>
@@ -167,5 +203,15 @@ public class PatientController(
         public string SourceText { get; set; } = string.Empty;
         public float[] Vector { get; set; } = Array.Empty<float>();
         public string Model { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Request DTO for the vector-search endpoint. Kept as a nested type for
+    /// the same co-location reason as UpsertEmbeddingRequest.
+    /// </summary>
+    public sealed class VectorSearchRequest
+    {
+        public float[] QueryVector { get; set; } = Array.Empty<float>();
+        public int TopK { get; set; } = 5;
     }
 }

@@ -49,8 +49,12 @@ public class PatientEventHandler(
         }
 
         // 1. Refresh pseudonymised Redis context (used by the current LLM chat path).
+        //    Uses the (int patientId, string context) overload so it lands under
+        //    the SAME "patient-context-v2:{id}" prefix that AiCacheWarmupService
+        //    and AIController.GetAllPatientContextsAsync use - otherwise Kafka
+        //    updates would be invisible to the retrieval / chat paths.
         var context = _redactor.BuildContext(patient);
-        await _redis.SetPatientContextAsync($"patient:{patientId}", context, TimeSpan.FromHours(24));
+        await _redis.SetPatientContextAsync(patientId, context);
         _logger.LogInformation("Updated context for patient {Pseudonym} ({Verb})",
             PhiRedactor.Pseudonym(patientId), changeVerb);
 
@@ -65,7 +69,8 @@ public class PatientEventHandler(
     /// </summary>
     public async Task HandleDeletedAsync(int patientId, CancellationToken cancellationToken)
     {
-        await _redis.DeletePatientContextAsync($"patient:{patientId}");
+        // Match the write side: contexts live under "patient-context-v2:{id}".
+        await _redis.DeletePatientContextAsync($"patient-context-v2:{patientId}");
         _logger.LogInformation("Removed context for deleted patient {Pseudonym}",
             PhiRedactor.Pseudonym(patientId));
 

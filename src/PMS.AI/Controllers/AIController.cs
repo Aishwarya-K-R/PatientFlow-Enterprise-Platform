@@ -13,6 +13,7 @@ namespace PatientFlow.AI.Controllers;
 public class AIController(
     RedisService redis,
     LLMService llm,
+    VectorSearchService vectorSearch,
     IOptions<AISettings> settings,
     AiCacheWarmupService warmupService,
     ILogger<AIController> logger
@@ -20,6 +21,7 @@ public class AIController(
 {
     private readonly RedisService _redis = redis;
     private readonly LLMService _llm = llm;
+    private readonly VectorSearchService _vectorSearch = vectorSearch;
     private readonly AISettings _settings = settings.Value;
     private readonly AiCacheWarmupService _warmupService = warmupService;
     private readonly ILogger<AIController> _logger = logger;
@@ -30,10 +32,48 @@ public class AIController(
     {
         var request = body.Question;
 
-        // Get patient context from Redis
-        var cachedContext = await _redis.GetAllPatientContextsAsync();
+        // RAG retrieval: embed the question, ask pgvector for the top-K most
+        // similar patients, then MGET only those patients' pseudonymised
+        // contexts from Redis. Previously we dumped the WHOLE cache into the
+        // prompt, which fails to scale past a few hundred patients and dilutes
+        // the LLM's attention on the actually-relevant records.
+        var matches = await _vectorSearch.FindRelevantPatientsAsync(
+            request, topK: _settings.TopKResults, HttpContext.RequestAborted);
 
-        var finalContext = string.Join("\n", cachedContext.Values);
+        string finalContext;
+        List<int> promptPatientIds;
+
+        if (matches.Count > 0)
+        {
+            var contexts = await _redis.GetPatientContextsAsync(matches.Select(m => m.PatientId));
+
+            // Preserve the ranked order returned by pgvector so the closest
+            // match appears first in the prompt (LLMs tend to weight earlier
+            // items more heavily).
+            var ordered = matches
+                .Where(m => contexts.ContainsKey(m.PatientId))
+                .Select(m => contexts[m.PatientId])
+                .ToList();
+
+            finalContext = string.Join("\n", ordered);
+            promptPatientIds = matches
+                .Where(m => contexts.ContainsKey(m.PatientId))
+                .Select(m => m.PatientId)
+                .ToList();
+        }
+        else
+        {
+            // Vector search returned nothing (empty embedding table, Ollama down,
+            // Patient service unreachable). Fall back to the historical
+            // "dump everything" behaviour so a partial outage still produces an
+            // answer instead of a hard failure. This is a safety net, not the
+            // steady-state path.
+            _logger.LogWarning(
+                "Vector search returned no matches; falling back to full-cache scan");
+            var cachedContext = await _redis.GetAllPatientContextsAsync();
+            finalContext = string.Join("\n", cachedContext.Values);
+            promptPatientIds = cachedContext.Keys.ToList();
+        }
 
         if (string.IsNullOrWhiteSpace(finalContext))
         {
@@ -60,8 +100,8 @@ public class AIController(
 
         var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "unknown";
         _logger.LogInformation(
-            "AUDIT ai-query | userId={UserId} | question={Question} | answerChars={AnswerChars}",
-            userId, request, readableAnswer.Length
+            "AUDIT ai-query | userId={UserId} | question={Question} | matchedPatients={PatientCount} | promptIds=[{Ids}] | answerChars={AnswerChars}",
+            userId, request, promptPatientIds.Count, string.Join(",", promptPatientIds), readableAnswer.Length
         );
 
         return Content(readableAnswer, "text/plain");

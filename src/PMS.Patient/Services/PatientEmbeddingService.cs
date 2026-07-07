@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using PatientFlow.Patient.Data;
 using PatientFlow.Patient.Models;
 using Pgvector;
+using Pgvector.EntityFrameworkCore;
 
 namespace PatientFlow.Patient.Services;
 
@@ -125,5 +126,46 @@ public class PatientEmbeddingService(
         await _db.SaveChangesAsync(cancellationToken);
         _logger.LogInformation("Deleted embedding for patient {PatientId}", patientId);
         return true;
+    }
+
+    /// <summary>
+    /// Cosine-distance nearest-neighbour search against PatientEmbeddings.
+    /// Returns the top-K patient ids ordered by distance ascending
+    /// (closest match first). The distance is included so the caller can
+    /// log / debug relevance and, if desired, drop matches beyond a
+    /// similarity threshold.
+    ///
+    /// Cosine distance = 1 - cosine similarity, so 0.0 is identical and
+    /// 1.0 is orthogonal. In practice we see 0.3-0.6 for solid matches
+    /// on the nomic-embed-text model.
+    ///
+    /// Uses the &lt;=&gt; operator via Pgvector.EntityFrameworkCore's
+    /// EF.Functions.CosineDistance so the ORDER BY translates to a pure
+    /// SQL sort - no rows are pulled into memory before ranking.
+    /// </summary>
+    public async Task<List<(int PatientId, double Distance)>> SearchNearestAsync(
+        float[] queryVector,
+        int topK,
+        CancellationToken cancellationToken = default)
+    {
+        if (queryVector.Length == 0 || topK <= 0)
+        {
+            return new List<(int, double)>();
+        }
+
+        var query = new Vector(queryVector);
+
+        var raw = await _db.PatientEmbeddings
+            .AsNoTracking()
+            .OrderBy(e => e.Embedding.CosineDistance(query))
+            .Take(topK)
+            .Select(e => new
+            {
+                e.PatientId,
+                Distance = e.Embedding.CosineDistance(query)
+            })
+            .ToListAsync(cancellationToken);
+
+        return raw.Select(r => (r.PatientId, r.Distance)).ToList();
     }
 }

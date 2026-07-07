@@ -21,4 +21,11 @@ public class AISettings
     // for hours during the first boot.
     public bool EmbeddingBackfillEnabled { get; set; } = true;
     public int EmbeddingBackfillMaxPerRun { get; set; } = 500;
+
+    // Retrieval-Augmented Generation knob: how many of the most semantically
+    // similar patients to feed into the LLM prompt for a given question.
+    // 5 is a sensible default - big enough to catch the right patient when the
+    // top-1 match is noisy, small enough to keep the prompt short and cheap.
+    // If you raise this, watch prompt-token count in the LLM logs.
+    public int TopKResults { get; set; } = 5;
 }
