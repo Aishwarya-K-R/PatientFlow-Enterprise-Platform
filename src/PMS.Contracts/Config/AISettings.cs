@@ -9,10 +9,11 @@ public class AISettings
     public string Endpoint { get; set; } = string.Empty;
 
     // Embedding-specific configuration - separate from the chat model above so
-    // both can be swapped independently. Endpoint defaults to Ollama's local
-    // embeddings URL; model defaults to nomic-embed-text (768 dims, matches
-    // the pgvector(768) column in PatientEmbeddings).
-    public string EmbeddingEndpoint { get; set; } = "http://localhost:11434/api/embeddings";
+    // both can be swapped independently. Endpoint defaults to Ollama running
+    // as a sibling compose service (`ollama:11434`); model defaults to
+    // nomic-embed-text (768 dims, matches the pgvector(768) column in
+    // PatientEmbeddings).
+    public string EmbeddingEndpoint { get; set; } = "http://ollama:11434/api/embeddings";
     public string EmbeddingModel { get; set; } = "nomic-embed-text";
 
     // Startup backfill: on AI service start, walk any patients that don't yet

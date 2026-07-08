@@ -34,3 +34,27 @@ spec:
                 configMapKeyRef:
                   name: app-config
                   key: KAFKA_BOOTSTRAP_SERVERS
+            # Ollama endpoints + model names come from the ConfigMap so ops
+            # can swap models (e.g. llama3.2 -> llama3.1) without rebuilding
+            # the AI image. Points at ollama-service (ClusterIP) which fronts
+            # ollama-deployment; models are pre-pulled by ollama-pull Job.
+            - name: AI__Endpoint
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: OLLAMA_GENERATE_ENDPOINT
+            - name: AI__Model
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: OLLAMA_CHAT_MODEL
+            - name: AI__EmbeddingEndpoint
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: OLLAMA_EMBEDDING_ENDPOINT
+            - name: AI__EmbeddingModel
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: OLLAMA_EMBEDDING_MODEL

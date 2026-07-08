@@ -64,6 +64,72 @@ services:
       - patientflow-network
 
   # ===========================================================================
+  # Ollama - LLM + embedding runtime, in-cluster (Phase 10 Step 5)
+  #
+  # Previously the AI service reached out to Ollama running on the developer
+  # host via `host.docker.internal`. That worked on a single laptop but broke
+  # any deployment where "the host" isn't a dev machine (CI, Kubernetes,
+  # remote VMs). Running Ollama as a first-class compose service makes the
+  # whole stack self-contained: `docker compose up` is now enough to get an
+  # end-to-end RAG pipeline running.
+  #
+  # Model files (~2.3 GB for llama3.2 + nomic-embed-text) are persisted in a
+  # named volume so `compose down/up` cycles do NOT re-download them.
+  # ===========================================================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      # Expose to the host too so a dev can `ollama` CLI against it if needed.
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      # `ollama --version` is baked into the image and doesn't require curl
+      # or wget, which the minimal image doesn't ship with.
+      test: ["CMD", "ollama", "--version"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - patientflow-network
+
+  # ---------------------------------------------------------------------------
+  # ollama-pull — one-shot sidecar that pre-pulls the models the AI service
+  # needs. Runs once after `ollama` is healthy, exits when both pulls finish.
+  # `ai-service` depends on this completing so warmup / backfill never see
+  # a "model not loaded" error on first boot.
+  #
+  # Idempotent: on a second `compose up` the models are already in the volume
+  # and `ollama pull` returns almost instantly.
+  # ---------------------------------------------------------------------------
+  ollama-pull:
+    image: ollama/ollama:latest
+    container_name: ollama-pull
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      # Talk to the sibling container over the compose network instead of the
+      # default localhost:11434 (which would be this container itself).
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        set -e
+        echo "Pulling llama3.2 (chat model)..."
+        ollama pull llama3.2
+        echo "Pulling nomic-embed-text (embedding model)..."
+        ollama pull nomic-embed-text
+        echo "All models present. Exiting."
+    restart: "no"
+    networks:
+      - patientflow-network
+
+  # ===========================================================================
   # Microservices
   # ===========================================================================
   gateway:
@@ -175,6 +241,10 @@ services:
         condition: service_started
       kafka:
         condition: service_started
+      # Wait for models to be pulled before we start warmup / backfill,
+      # otherwise the first embedding call blocks on a cold pull.
+      ollama-pull:
+        condition: service_completed_successfully
     ports:
       - "${AI_PORT}:8080"
     environment:
@@ -192,10 +262,6 @@ services:
       Kafka__BootstrapServers: kafka:29092
       OpenTelemetry__OtlpEndpoint: http://tempo:4318
       Serilog__WriteTo__1__Args__uri: http://loki:3100
-    extra_hosts:
-      # Lets the container reach Ollama running on the Windows/macOS host
-      # (AI__Endpoint / AI__EmbeddingEndpoint use host.docker.internal).
-      - "host.docker.internal:host-gateway"
     networks:
       - patientflow-network
 
@@ -309,3 +375,6 @@ volumes:
   prometheus-data:
   alertmanager-data:
   grafana-data:
+  # Holds pulled Ollama model files (~2.3 GB for llama3.2 + nomic-embed-text).
+  # Persisting them across compose down/up cycles avoids a 5-min re-download.
+  ollama-data:

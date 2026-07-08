@@ -6,3 +6,11 @@ data:
   REDIS_CONN: "redis-service:6379"
   KAFKA_BOOTSTRAP_SERVERS: "kafka-service:9092"
   KAFKA_ZOOKEEPER_CONNECT: "zookeeper-service:2181"
+
+  # Ollama - in-cluster since Phase 10 Step 5. `ollama-service` is the
+  # ClusterIP Service in front of ollama-deployment. Model names must
+  # match what ollama-pull-job.yml pre-pulls into the PVC.
+  OLLAMA_GENERATE_ENDPOINT: "http://ollama-service:11434/api/generate"
+  OLLAMA_EMBEDDING_ENDPOINT: "http://ollama-service:11434/api/embeddings"
+  OLLAMA_CHAT_MODEL: "llama3.2"
+  OLLAMA_EMBEDDING_MODEL: "nomic-embed-text"

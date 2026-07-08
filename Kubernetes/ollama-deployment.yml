@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama-deployment
+spec:
+  # Single replica: Ollama is stateful (models live on disk) and doesn't
+  # coordinate across pods. If you need HA, run one replica per node and
+  # front them with a Service. Scaling out means duplicating the PVC.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama-deployment
+  template:
+    metadata:
+      labels:
+        app: ollama-deployment
+    spec:
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          ports:
+            - containerPort: 11434
+          volumeMounts:
+            # Ollama stores pulled models under ~/.ollama; mounting the PVC
+            # here means models survive pod restarts / rescheduling.
+            - name: ollama-storage
+              mountPath: /root/.ollama
+          readinessProbe:
+            # Same trick as compose: `ollama --version` is baked in and
+            # doesn't require curl/wget. Once this passes, the ollama-pull
+            # Job (and later the ai-service) can start talking to us.
+            exec:
+              command: ["ollama", "--version"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+      volumes:
+        - name: ollama-storage
+          persistentVolumeClaim:
+            claimName: ollama-pvc
