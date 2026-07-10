@@ -17,6 +17,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\PMS.AI\PMS.AI.csproj" />
+    <ProjectReference Include="..\..\src\PMS.Contracts\PMS.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
 

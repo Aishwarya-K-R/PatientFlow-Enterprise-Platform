@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      # 20 GiB: enough for llama3.2 (~2 GB) + nomic-embed-text (~275 MB)
+      # plus headroom for one or two extra models. Bump this if you plan to
+      # host larger models (llama3.1:70b is ~40 GB - would need >=50 GiB).
+      storage: 20Gi

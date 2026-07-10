@@ -33,8 +33,13 @@ public abstract class KafkaConsumerBase<TPayload> : BackgroundService
     {
         _logger = logger;
         _topic = topic;
-        _retryTopic = $"{topic}-retry";
-        _dlqTopic = $"{topic}-dlq";
+
+        // If subscribed to a retry topic, derive retry/DLQ names from the BASE topic
+        // so failed retries loop back to the same retry queue (instead of creating
+        // patient-created-retry-retry, -retry-retry-retry, ...).
+        var baseTopic = topic.EndsWith("-retry") ? topic[..^"-retry".Length] : topic;
+        _retryTopic = $"{baseTopic}-retry";
+        _dlqTopic = $"{baseTopic}-dlq";
         _maxRetryAttempts = maxRetryAttempts;
 
         var consumerConfig = new ConsumerConfig

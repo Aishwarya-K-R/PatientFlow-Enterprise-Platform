@@ -3,7 +3,9 @@ services:
   # Infrastructure
   # ===========================================================================
   postgres:
-    image: postgres:16
+    # pgvector/pgvector image = plain postgres:16 + the pgvector extension pre-installed.
+    # Same data directory layout as postgres:16, so existing volumes work unchanged.
+    image: pgvector/pgvector:pg16
     container_name: postgres
     restart: unless-stopped
     environment:
@@ -62,6 +64,72 @@ services:
       - patientflow-network
 
   # ===========================================================================
+  # Ollama - LLM + embedding runtime, in-cluster (Phase 10 Step 5)
+  #
+  # Previously the AI service reached out to Ollama running on the developer
+  # host via `host.docker.internal`. That worked on a single laptop but broke
+  # any deployment where "the host" isn't a dev machine (CI, Kubernetes,
+  # remote VMs). Running Ollama as a first-class compose service makes the
+  # whole stack self-contained: `docker compose up` is now enough to get an
+  # end-to-end RAG pipeline running.
+  #
+  # Model files (~2.3 GB for llama3.2 + nomic-embed-text) are persisted in a
+  # named volume so `compose down/up` cycles do NOT re-download them.
+  # ===========================================================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      # Expose to the host too so a dev can `ollama` CLI against it if needed.
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      # `ollama --version` is baked into the image and doesn't require curl
+      # or wget, which the minimal image doesn't ship with.
+      test: ["CMD", "ollama", "--version"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - patientflow-network
+
+  # ---------------------------------------------------------------------------
+  # ollama-pull — one-shot sidecar that pre-pulls the models the AI service
+  # needs. Runs once after `ollama` is healthy, exits when both pulls finish.
+  # `ai-service` depends on this completing so warmup / backfill never see
+  # a "model not loaded" error on first boot.
+  #
+  # Idempotent: on a second `compose up` the models are already in the volume
+  # and `ollama pull` returns almost instantly.
+  # ---------------------------------------------------------------------------
+  ollama-pull:
+    image: ollama/ollama:latest
+    container_name: ollama-pull
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      # Talk to the sibling container over the compose network instead of the
+      # default localhost:11434 (which would be this container itself).
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        set -e
+        echo "Pulling llama3.2 (chat model)..."
+        ollama pull llama3.2
+        echo "Pulling nomic-embed-text (embedding model)..."
+        ollama pull nomic-embed-text
+        echo "All models present. Exiting."
+    restart: "no"
+    networks:
+      - patientflow-network
+
+  # ===========================================================================
   # Microservices
   # ===========================================================================
   gateway:
@@ -81,6 +149,7 @@ services:
       ReverseProxy__Clusters__patient-cluster__Destinations__patient-service__Address: http://patient-service:8080/
       ReverseProxy__Clusters__ai-cluster__Destinations__ai-service__Address: http://ai-service:8080/
       OpenTelemetry__OtlpEndpoint: http://tempo:4318
+      Serilog__WriteTo__1__Args__uri: http://loki:3100
     networks:
       - patientflow-network
 
@@ -102,6 +171,7 @@ services:
       Jwt__Issuer: ${JWT_ISSUER}
       Jwt__Audience: ${JWT_AUDIENCE}
       OpenTelemetry__OtlpEndpoint: http://tempo:4318
+      Serilog__WriteTo__1__Args__uri: http://loki:3100
     networks:
       - patientflow-network
 
@@ -128,9 +198,11 @@ services:
       Jwt__Issuer: ${JWT_ISSUER}
       Jwt__Audience: ${JWT_AUDIENCE}
       BillingService__Address: billing-service
-      BillingService__Port: 8080
+      BillingService__Port: 8081
       Kafka__BootstrapServers: kafka:29092
+      InternalApiKey: ${INTERNAL_API_KEY}
       OpenTelemetry__OtlpEndpoint: http://tempo:4318
+      Serilog__WriteTo__1__Args__uri: http://loki:3100
     networks:
       - patientflow-network
 
@@ -152,6 +224,7 @@ services:
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${BILLING_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
       Kafka__BootstrapServers: kafka:29092
       OpenTelemetry__OtlpEndpoint: http://tempo:4318
+      Serilog__WriteTo__1__Args__uri: http://loki:3100
     networks:
       - patientflow-network
 
@@ -164,6 +237,14 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      patient-service:
+        condition: service_started
+      kafka:
+        condition: service_started
+      # Wait for models to be pulled before we start warmup / backfill,
+      # otherwise the first embedding call blocks on a cold pull.
+      ollama-pull:
+        condition: service_completed_successfully
     ports:
       - "${AI_PORT}:8080"
     environment:
@@ -174,7 +255,13 @@ services:
       Jwt__Audience: ${JWT_AUDIENCE}
       AI__Endpoint: ${AI_ENDPOINT}
       AI__Model: ${AI_MODEL}
+      AI__EmbeddingEndpoint: ${AI_EMBEDDING_ENDPOINT}
+      AI__EmbeddingModel: ${AI_EMBEDDING_MODEL}
+      PatientService__BaseUrl: http://patient-service:8080
+      PatientService__InternalApiKey: ${INTERNAL_API_KEY}
+      Kafka__BootstrapServers: kafka:29092
       OpenTelemetry__OtlpEndpoint: http://tempo:4318
+      Serilog__WriteTo__1__Args__uri: http://loki:3100
     networks:
       - patientflow-network
 
@@ -195,6 +282,63 @@ services:
       - patientflow-network
 
   # ===========================================================================
+  # Observability - Loki (Log Aggregation)
+  # ===========================================================================
+  loki:
+    image: grafana/loki:2.9.4
+    container_name: loki
+    command: [ "-config.file=/etc/loki/loki-config.yaml" ]
+    volumes:
+      - ./observability/loki-config.yaml:/etc/loki/loki-config.yaml
+      - loki-data:/loki
+    ports:
+      - "3100:3100"   # Loki HTTP API
+    networks:
+      - patientflow-network
+
+  # ===========================================================================
+  # Observability - Prometheus (Metrics)
+  # ===========================================================================
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"   # Prometheus UI
+    depends_on:
+      - alertmanager
+    networks:
+      - patientflow-network
+
+  # ===========================================================================
+  # Observability - Alertmanager (Alert routing + notifications)
+  # ===========================================================================
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    volumes:
+      - ./observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+      - alertmanager-data:/alertmanager
+    ports:
+      - "9093:9093"   # Alertmanager UI
+    extra_hosts:
+      # Lets the container reach a webhook listener on the host machine
+      - "host.docker.internal:host-gateway"
+    networks:
+      - patientflow-network
+
+  # ===========================================================================
   # Observability - Grafana (Visualization)
   # ===========================================================================
   grafana:
@@ -204,13 +348,19 @@ services:
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
       - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - GF_USERS_DEFAULT_THEME=dark
     volumes:
-      - ./observability/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+      # Datasources + dashboard providers (auto-provisioned on startup)
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning
+      # Actual dashboard JSON files referenced by the provider above
+      - ./observability/grafana/dashboards:/etc/grafana/dashboards
       - grafana-data:/var/lib/grafana
     ports:
       - "3000:3000"   # Grafana UI
     depends_on:
       - tempo
+      - loki
+      - prometheus
     networks:
       - patientflow-network
 
@@ -221,4 +371,10 @@ networks:
 volumes:
   postgres-data:
   tempo-data:
+  loki-data:
+  prometheus-data:
+  alertmanager-data:
   grafana-data:
+  # Holds pulled Ollama model files (~2.3 GB for llama3.2 + nomic-embed-text).
+  # Persisting them across compose down/up cycles avoids a 5-min re-download.
+  ollama-data:

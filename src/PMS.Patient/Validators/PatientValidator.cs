@@ -29,5 +29,10 @@ public class PatientValidator : AbstractValidator<Models.Patient>
             .NotEmpty().WithMessage("Registered date is required")
             .LessThanOrEqualTo(DateOnly.FromDateTime(DateTime.Today))
             .WithMessage("Registered date cannot be in the future");
+
+        // MedicalHistory is optional (existing records won't have it) but capped
+        // so a runaway paste can't blow up the embedding call to Ollama.
+        RuleFor(x => x.MedicalHistory)
+            .MaximumLength(4000).WithMessage("Medical history cannot exceed 4000 characters");
     }
 }

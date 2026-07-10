@@ -12,7 +12,6 @@ using PatientFlow.Common.Exceptions;
 using PatientFlow.Common.Kafka;
 using PatientFlow.Common.Telemetry;
 using PatientFlow.Patient.Validators;
-
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Configuration
@@ -22,7 +21,11 @@ builder.Configuration
 builder.Services.AddOpenTelemetryTracing(builder.Configuration, "Patient-Service");
 
 builder.Services.AddDbContext<PatientDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseNpgsql(
+        builder.Configuration.GetConnectionString("DefaultConnection"),
+        // Tell Npgsql about pgvector so it knows how to map the `vector` type
+        // in both directions (read query results into Pgvector.Vector and vice versa).
+        o => o.UseVector()));
 
 builder.Services.AddMemoryCache();
 builder.Services.AddStackExchangeRedisCache(options =>
@@ -33,6 +36,7 @@ builder.Services.AddStackExchangeRedisCache(options =>
 
 builder.Services.AddScoped<IPatientRepository, PatientRepository>();
 builder.Services.AddScoped<PatientService>();
+builder.Services.AddScoped<PatientEmbeddingService>();
 builder.Services.AddSingleton<KafkaProducer>();
 builder.Services.AddSingleton<BillingGrpcClient>();
 builder.Services.AddHostedService<OutboxPublisherService>();
@@ -93,6 +97,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseExceptionHandler();
+
+app.UseMiddleware<PatientFlow.Patient.Middleware.InternalApiKeyMiddleware>();
 
 app.UseAuthentication();
 

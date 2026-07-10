@@ -1,12 +1,15 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using PatientFlow.Common.Kafka;
 using PatientFlow.Contracts.Events;
 
 namespace PatientFlow.AI.Services;
 
 /// <summary>
-/// Consumes retry topic messages with exponential backoff delay.
-/// Re-processes failed messages after a delay before sending to main consumer.
+/// Consumes the patient-created-retry topic with an exponential backoff before
+/// re-processing. Delegates to PatientEventHandler for the actual work so the
+/// retry path never diverges from the main path (previously it wrote a much
+/// simpler "context = name + email" string that would clobber the real
+/// pseudonymised context).
 /// </summary>
 public class PatientEventsRetryConsumer : KafkaConsumerBase<PatientCreatedEvent>
 {
@@ -23,7 +26,7 @@ public class PatientEventsRetryConsumer : KafkaConsumerBase<PatientCreatedEvent>
             logger,
             $"{config["Kafka:PatientCreatedTopic"]}-retry",
             "ai-service-retry-group",
-            maxRetryAttempts: 3) // Same max as main consumer
+            maxRetryAttempts: 3)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
@@ -35,72 +38,49 @@ public class PatientEventsRetryConsumer : KafkaConsumerBase<PatientCreatedEvent>
     {
         try
         {
-            // Get retry count from metadata
             var retryCount = envelope.Metadata?.ContainsKey("RetryCount") == true
                 ? int.Parse(envelope.Metadata["RetryCount"])
                 : 1;
 
-            // Exponential backoff: 2^retryCount seconds (2s, 4s, 8s)
+            // Exponential backoff: 2s, 4s, 8s ...
             var delaySeconds = Math.Pow(2, retryCount);
             _logger.LogInformation("Retry consumer: Waiting {Delay}s before retry attempt {Attempt} for event {EventId}",
                 delaySeconds, retryCount, envelope.EventId);
-
             await Task.Delay(TimeSpan.FromSeconds(delaySeconds), cancellationToken);
 
-            // Now process with same logic as main consumer
             using var scope = _serviceProvider.CreateScope();
             var redis = scope.ServiceProvider.GetRequiredService<RedisService>();
+            var handler = scope.ServiceProvider.GetRequiredService<PatientEventHandler>();
 
-            // Check for duplicates
             var cacheKey = $"processed_event:{envelope.EventId}";
-            var alreadyProcessed = await redis.GetPatientContextAsync(cacheKey);
-
-            if (alreadyProcessed != null)
+            if (await redis.GetPatientContextAsync(cacheKey) != null)
             {
                 _logger.LogInformation("Retry consumer: Event {EventId} already processed during retry delay",
                     envelope.EventId);
                 return true;
             }
 
-            // Process based on event type — same logic as main consumer.
-            // Uses EventTypes constants from PatientFlow.Contracts.Events.
-            switch (envelope.EventType)
+            // The retry topic only carries PatientCreated events (produced by the
+            // main patient-created consumer when it fails). Any other type here
+            // is a routing bug - skip cleanly rather than looping.
+            if (envelope.EventType != EventTypes.PatientCreated)
             {
-                case EventTypes.PatientCreated:
-                    var patientCreated = JsonSerializer.Deserialize<PatientCreatedEvent>(
-                        envelope.Payload.ToString()!);
-                    if (patientCreated != null)
-                    {
-                        await HandlePatientCreatedAsync(redis, patientCreated);
-                    }
-                    break;
-
-                case EventTypes.PatientUpdated:
-                    var patientUpdated = JsonSerializer.Deserialize<PatientUpdatedEvent>(
-                        envelope.Payload.ToString()!);
-                    if (patientUpdated != null)
-                    {
-                        await HandlePatientUpdatedAsync(redis, patientUpdated);
-                    }
-                    break;
-
-                case EventTypes.PatientDeleted:
-                    var patientDeleted = JsonSerializer.Deserialize<PatientDeletedEvent>(
-                        envelope.Payload.ToString()!);
-                    if (patientDeleted != null)
-                    {
-                        await HandlePatientDeletedAsync(redis, patientDeleted);
-                    }
-                    break;
-
-                default:
-                    _logger.LogWarning("Retry consumer: Unknown event type: {EventType}", envelope.EventType);
-                    return true;
+                _logger.LogWarning("Retry consumer: Unexpected event type {EventType}; skipping",
+                    envelope.EventType);
+                return true;
             }
 
-            // Mark as processed
-            await redis.SetPatientContextAsync(cacheKey, "processed", TimeSpan.FromDays(7));
+            var evt = JsonSerializer.Deserialize<PatientCreatedEvent>(envelope.Payload.ToString()!);
+            if (evt == null)
+            {
+                _logger.LogWarning("Retry consumer: Failed to deserialize PatientCreatedEvent for event {EventId}",
+                    envelope.EventId);
+                return true;
+            }
 
+            await handler.HandleChangedAsync(evt.PatientId, "created (retry)", cancellationToken);
+
+            await redis.SetPatientContextAsync(cacheKey, "processed", TimeSpan.FromDays(7));
             _logger.LogInformation("Retry consumer: Successfully processed event {EventId} on retry attempt {Attempt}",
                 envelope.EventId, retryCount);
             return true;
@@ -109,27 +89,7 @@ public class PatientEventsRetryConsumer : KafkaConsumerBase<PatientCreatedEvent>
         {
             _logger.LogError(ex, "Retry consumer: Error processing event {EventId}: {Message}",
                 envelope.EventId, ex.Message);
-            return false; // Will go to DLQ after max retries in base class
+            return false;
         }
-    }
-
-    private async Task HandlePatientCreatedAsync(RedisService redis, PatientCreatedEvent evt)
-    {
-        var context = $"Patient {evt.PatientId} ({evt.Name}) created with email {evt.Email}";
-        await redis.SetPatientContextAsync($"patient:{evt.PatientId}", context, TimeSpan.FromHours(24));
-        _logger.LogInformation("Retry consumer: Updated context for patient {PatientId}", evt.PatientId);
-    }
-
-    private async Task HandlePatientUpdatedAsync(RedisService redis, PatientUpdatedEvent evt)
-    {
-        var context = $"Patient {evt.PatientId} ({evt.Name}) updated, email: {evt.Email}";
-        await redis.SetPatientContextAsync($"patient:{evt.PatientId}", context, TimeSpan.FromHours(24));
-        _logger.LogInformation("Retry consumer: Updated context for patient {PatientId}", evt.PatientId);
-    }
-
-    private async Task HandlePatientDeletedAsync(RedisService redis, PatientDeletedEvent evt)
-    {
-        await redis.DeletePatientContextAsync($"patient:{evt.PatientId}");
-        _logger.LogInformation("Retry consumer: Removed context for deleted patient {PatientId}", evt.PatientId);
     }
 }

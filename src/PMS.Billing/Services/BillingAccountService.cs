@@ -1,6 +1,7 @@
 using System.Text.Json;
 using PatientFlow.Billing.Data;
 using PatientFlow.Billing.Models;
+using PatientFlow.Common.Metrics;
 using PatientFlow.Contracts.Events;
 
 namespace PatientFlow.Billing.Services;
@@ -46,6 +47,8 @@ public class BillingAccountService(
         _context.BillingAccounts.Add(billing);
         _context.OutboxMessages.Add(outboxMessage);
         await _context.SaveChangesAsync();
+
+        AppMetrics.BillingAccountsCreated.Inc();
 
         _logger.LogInformation(
             "Billing account {AccountId} created for PatientId {PatientId}",

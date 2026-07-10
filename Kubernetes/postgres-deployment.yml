@@ -14,7 +14,9 @@ spec:
     spec:
       containers:
         - name: postgres-deployment
-          image: postgres:16
+          # pgvector/pgvector image = plain postgres:16 + pgvector extension pre-installed.
+          # Enables vector similarity search for patient embeddings (Phase 10).
+          image: pgvector/pgvector:pg16
           ports:
             - containerPort: 5432
           env:

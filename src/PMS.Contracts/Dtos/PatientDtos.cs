@@ -12,4 +12,8 @@ public record PatientDto
     public DateOnly DateOfBirth { get; init; }
     public string Address { get; init; } = string.Empty;
     public DateOnly RegisteredDate { get; init; }
+
+    // Clinical narrative used by the RAG pipeline. Optional so older callers
+    // that only care about demographics can ignore it.
+    public string MedicalHistory { get; init; } = string.Empty;
 }

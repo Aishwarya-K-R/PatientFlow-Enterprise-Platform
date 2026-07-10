@@ -29,6 +29,17 @@ public static class TelemetryConfig
                     {
                         options.RecordException = true;
 
+                        // Don't create spans for noise endpoints - Prometheus hits
+                        // /metrics every 5s on every service, which floods Tempo
+                        // with thousands of useless traces and crowds out real ones.
+                        options.Filter = httpContext =>
+                        {
+                            var path = httpContext.Request.Path.Value;
+                            if (string.IsNullOrEmpty(path)) return true;
+                            return !path.StartsWith("/metrics", StringComparison.OrdinalIgnoreCase)
+                                && !path.StartsWith("/health", StringComparison.OrdinalIgnoreCase);
+                        };
+
                         // Enrich span with actual HTTP path instead of route template
                         options.EnrichWithHttpRequest = (activity, httpRequest) =>
                         {
@@ -39,7 +50,25 @@ public static class TelemetryConfig
                             activity.SetTag("http.target", path);
                         };
                     })
-                    .AddHttpClientInstrumentation()
+                    .AddHttpClientInstrumentation(options =>
+                    {
+                        // Don't trace calls to observability infrastructure -
+                        // otherwise the exporter's own HTTP POST to Tempo/Loki
+                        // becomes a span, which gets exported, which creates
+                        // another span... a self-feeding loop.
+                        options.FilterHttpRequestMessage = request =>
+                        {
+                            var host = request.RequestUri?.Host;
+                            if (string.IsNullOrEmpty(host)) return true;
+                            return host != "tempo"
+                                && host != "loki"
+                                && host != "grafana";
+                        };
+                    })
+                    .AddGrpcClientInstrumentation(options =>
+                    {
+                        options.SuppressDownstreamInstrumentation = true;
+                    })
                     .AddProcessor(new RouteTemplateProcessor());
 
                 if (!string.IsNullOrEmpty(otlpEndpoint))

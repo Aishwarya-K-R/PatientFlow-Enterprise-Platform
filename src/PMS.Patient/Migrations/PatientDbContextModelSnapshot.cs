@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using PatientFlow.Patient.Data;
+using Pgvector;
 
 #nullable disable
 
@@ -20,6 +21,7 @@ namespace PMS.Patient.Migrations
                 .HasAnnotation("ProductVersion", "8.0.8")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
+            NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("PatientFlow.Patient.Models.OutboxMessage", b =>
@@ -82,6 +84,10 @@ namespace PMS.Patient.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("MedicalHistory")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text");
@@ -96,6 +102,46 @@ namespace PMS.Patient.Migrations
                         .HasDatabaseName("IX_Patients_Email_Unique");
 
                     b.ToTable("Patients");
+                });
+
+            modelBuilder.Entity("PatientFlow.Patient.Models.PatientEmbedding", b =>
+                {
+                    b.Property<int>("PatientId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Vector>("Embedding")
+                        .IsRequired()
+                        .HasColumnType("vector(768)");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("SourceText")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("PatientId");
+
+                    b.ToTable("PatientEmbeddings");
+                });
+
+            modelBuilder.Entity("PatientFlow.Patient.Models.PatientEmbedding", b =>
+                {
+                    b.HasOne("PatientFlow.Patient.Models.Patient", "Patient")
+                        .WithOne()
+                        .HasForeignKey("PatientFlow.Patient.Models.PatientEmbedding", "PatientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Patient");
                 });
 #pragma warning restore 612, 618
         }

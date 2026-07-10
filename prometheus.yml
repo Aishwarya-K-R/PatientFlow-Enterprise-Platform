@@ -1,19 +1,49 @@
 global:
   scrape_interval: 5s
+  evaluation_interval: 15s   # How often Prometheus checks alert rules
+
+# Alert rules are evaluated at evaluation_interval. When an expression
+# stays true for the rule's 'for:' duration, the alert FIRES and is sent
+# to every Alertmanager listed below.
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
 
 scrape_configs:
+  # All services expose /metrics on their internal Kestrel port (8080)
+  - job_name: 'gateway'
+    static_configs:
+      - targets: ['gateway:8080']
+        labels:
+          service: 'gateway'
+
   - job_name: 'auth-service'
     static_configs:
-      - targets: ['auth-service:4005']
+      - targets: ['auth-service:8080']
+        labels:
+          service: 'auth'
 
   - job_name: 'patient-service'
     static_configs:
-      - targets: ['patient-service:5244']
-  
+      - targets: ['patient-service:8080']
+        labels:
+          service: 'patient'
+
+  - job_name: 'billing-service'
+    static_configs:
+      # Billing has dual Kestrel endpoints (8080 Http1 for REST/metrics,
+      # 8081 Http2 for gRPC) - scrape the HTTP/1.1 port for metrics.
+      - targets: ['billing-service:8080']
+        labels:
+          service: 'billing'
+
   - job_name: 'ai-service'
     static_configs:
-      - targets: ['ai-service:5000']
-
-  - job_name: 'gateway'
-    static_configs:
-      - targets: ['api-gateway:4004']
+      - targets: ['ai-service:8080']
+        labels:
+          service: 'ai'

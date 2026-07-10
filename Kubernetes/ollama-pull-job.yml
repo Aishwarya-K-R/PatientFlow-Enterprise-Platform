@@ -1,0 +1,36 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # One-shot Job that pre-pulls the models the AI service needs so warmup
+  # never sees a "model not loaded" error. Runs against ollama-service.
+  # Idempotent: on re-apply, `ollama pull` for an existing model is a no-op.
+  name: ollama-pull
+spec:
+  # Only try a handful of times before giving up - a failing pull is almost
+  # always a transient network issue or a bad model tag, not something a
+  # 100th retry will fix.
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: ollama-pull
+          image: ollama/ollama:latest
+          env:
+            # Point the ollama CLI at the sibling Service instead of the
+            # default localhost:11434 (which would resolve to this pod).
+            - name: OLLAMA_HOST
+              value: "http://ollama-service:11434"
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              echo "Waiting for ollama-service to accept connections..."
+              until ollama --version >/dev/null 2>&1 && ollama list >/dev/null 2>&1; do
+                sleep 3
+              done
+              echo "Pulling llama3.2 (chat model)..."
+              ollama pull llama3.2
+              echo "Pulling nomic-embed-text (embedding model)..."
+              ollama pull nomic-embed-text
+              echo "All models present."
