@@ -29,4 +29,13 @@ public class AISettings
     // top-1 match is noisy, small enough to keep the prompt short and cheap.
     // If you raise this, watch prompt-token count in the LLM logs.
     public int TopKResults { get; set; } = 5;
+
+    // Prompt-injection defence knob (Phase 10 Step 6). Enforced in two places:
+    //   1. AskRequestValidator (rejects at HTTP boundary with 400 + message)
+    //   2. PromptSanitizer     (belt-and-braces guard right before the prompt
+    //                           reaches the LLM, in case validation was
+    //                           bypassed or the DTO was populated differently)
+    // 1000 chars = ~250 tokens, well below llama3.2's context window and long
+    // enough for any legitimate clinical question.
+    public int MaxQuestionLength { get; set; } = 1000;
 }

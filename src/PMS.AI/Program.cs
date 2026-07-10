@@ -92,6 +92,10 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<AiCacheWarmupServi
 // a pseudonymised, embedding-safe string. Stateless => singleton.
 builder.Services.AddSingleton<PhiRedactor>();
 
+// Prompt-injection defence (Phase 10 Step 6). Stateless regex checks +
+// runtime-tunable length ceiling from AI:MaxQuestionLength. Singleton.
+builder.Services.AddSingleton<PromptSanitizer>();
+
 // Shared handler used by every patient Kafka consumer (created / updated /
 // deleted / retry). Scoped so it can capture per-message DbContext / HttpClient
 // lifetimes cleanly when the consumer opens a scope per message.
