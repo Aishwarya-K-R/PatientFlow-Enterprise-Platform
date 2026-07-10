@@ -20,25 +20,25 @@ jobs:
 
       - name: Build & Push Auth Service
         run: |
-          docker build -t aishwaryakr/auth-service -f Dockerfile.auth .
-          docker push aishwaryakr/auth-service
+          docker build -t aishwaryakr/auth-service:latest -f src/PMS.Auth/Dockerfile .
+          docker push aishwaryakr/auth-service:latest
 
       - name: Build & Push Patient Service
         run: |
-          docker build -t aishwaryakr/patient-service -f Dockerfile.patient .
-          docker push aishwaryakr/patient-service
+          docker build -t aishwaryakr/patient-service:latest -f src/PMS.Patient/Dockerfile .
+          docker push aishwaryakr/patient-service:latest
 
       - name: Build & Push Billing Service
         run: |
-          docker build -t aishwaryakr/billing-service -f Dockerfile.billing .
-          docker push aishwaryakr/billing-service
+          docker build -t aishwaryakr/billing-service:latest -f src/PMS.Billing/Dockerfile .
+          docker push aishwaryakr/billing-service:latest
 
       - name: Build & Push AI Service
         run: |
-          docker build -t aishwaryakr/ai-service -f Dockerfile.llm .
-          docker push aishwaryakr/ai-service
+          docker build -t aishwaryakr/ai-service:latest -f src/PMS.AI/Dockerfile .
+          docker push aishwaryakr/ai-service:latest
 
       - name: Build & Push API Gateway
         run: |
-          docker build -t aishwaryakr/api-gateway -f Dockerfile.api-gateway .
-          docker push aishwaryakr/api-gateway
+          docker build -t aishwaryakr/api-gateway:latest -f src/PMS.Gateway/Dockerfile .
+          docker push aishwaryakr/api-gateway:latest
