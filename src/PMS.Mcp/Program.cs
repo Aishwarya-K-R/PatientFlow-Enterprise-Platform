@@ -4,6 +4,8 @@ using ModelContextProtocol.Server;
 using Microsoft.EntityFrameworkCore;
 using StackExchange.Redis;
 using PatientFlow.Mcp.Data;
+using PatientFlow.Mcp.Auth;
+using Microsoft.AspNetCore.Authentication;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -57,6 +59,33 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
 
 builder.Services.AddSingleton<McpReadRepository>();
 
+// --------------------------------------------------------------------------
+// API key authentication.
+//
+// Every MCP client (Claude Desktop, Claude Code, Copilot, custom agent) must
+// present its own X-Api-Key header. Per-agent keys give us:
+//   - attribution: every tool call is logged with the agent name
+//   - revocation: rotate a single agent's key without disturbing others
+//   - future scoping: today all keys carry mcp:read; write-capable keys can
+//     be added without touching the handler
+//
+// The "ApiKeys" config section is a flat key -> agent-name map, so we bind
+// directly into the Keys dictionary rather than requiring an extra nesting
+// level in appsettings.
+// --------------------------------------------------------------------------
+builder.Services.Configure<ApiKeyAuthOptions>(opts =>
+{
+    var section = builder.Configuration.GetSection(ApiKeyAuthOptions.SectionName);
+    opts.Keys = section.Get<Dictionary<string, string>>() ?? new();
+});
+
+builder.Services
+    .AddAuthentication(ApiKeyAuthHandler.SchemeName)
+    .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthHandler>(
+        ApiKeyAuthHandler.SchemeName, _ => { });
+
+builder.Services.AddAuthorization(opts => opts.AddMcpPolicies());
+
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -79,10 +108,17 @@ app.MapMetrics();
 
 app.MapHealthChecks("/health");
 
+// Auth pipeline sits before MapMcp so tool invocations are gated. Health and
+// metrics endpoints are already mapped above and don't require the policy;
+// the API key scheme returns NoResult when no header is present, so anonymous
+// scrapes still work.
+app.UseAuthentication();
+app.UseAuthorization();
+
 // MCP protocol endpoints. By default this exposes:
 //   POST /            - JSON-RPC requests
 //   GET  /sse         - Server-Sent Events channel for streamed responses
 // Clients like Claude Desktop and GitHub Copilot know how to speak this.
-app.MapMcp();
+app.MapMcp().RequireAuthorization(McpAuthorizationPolicy.RequireMcpRead);
 
 app.Run();
