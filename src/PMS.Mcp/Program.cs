@@ -1,6 +1,9 @@
 using Serilog;
 using Prometheus;
 using ModelContextProtocol.Server;
+using Microsoft.EntityFrameworkCore;
+using StackExchange.Redis;
+using PatientFlow.Mcp.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -31,6 +34,28 @@ builder.Services
     .AddMcpServer()
     .WithHttpTransport()
     .WithToolsFromAssembly();
+
+// --------------------------------------------------------------------------
+// Read-only data access.
+//
+// Both DbContexts are registered as *factories* rather than scoped contexts
+// because MCP tool invocations are inherently concurrent (SSE + JSON-RPC
+// can dispatch multiple tool calls in parallel). A shared scoped context
+// isn't thread-safe; a factory hands each tool call its own short-lived
+// context. AsNoTracking is enforced globally inside the contexts.
+// --------------------------------------------------------------------------
+builder.Services.AddDbContextFactory<McpPatientDbContext>(opt =>
+    opt.UseNpgsql(builder.Configuration.GetConnectionString("PatientConnection")));
+
+builder.Services.AddDbContextFactory<McpBillingDbContext>(opt =>
+    opt.UseNpgsql(builder.Configuration.GetConnectionString("BillingConnection")));
+
+builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
+    ConnectionMultiplexer.Connect(
+        builder.Configuration.GetConnectionString("RedisConnection")
+        ?? throw new InvalidOperationException("RedisConnection not configured")));
+
+builder.Services.AddSingleton<McpReadRepository>();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
