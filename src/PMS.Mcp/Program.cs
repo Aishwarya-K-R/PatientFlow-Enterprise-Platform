@@ -86,6 +86,12 @@ builder.Services
 
 builder.Services.AddAuthorization(opts => opts.AddMcpPolicies());
 
+// Tools use IHttpContextAccessor to attribute each call to the authenticated
+// agent (HttpContext.User.Identity.Name). Registered as a singleton by ASP.NET
+// but declared explicitly here for clarity — it's a hard dependency of every
+// tool class discovered by WithToolsFromAssembly().
+builder.Services.AddHttpContextAccessor();
+
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
