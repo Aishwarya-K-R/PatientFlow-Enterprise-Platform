@@ -35,7 +35,8 @@ builder.Host.UseSerilog((context, config) =>
 builder.Services
     .AddMcpServer()
     .WithHttpTransport()
-    .WithToolsFromAssembly();
+    .WithToolsFromAssembly()
+    .WithResourcesFromAssembly();
 
 // --------------------------------------------------------------------------
 // Read-only data access.
@@ -92,6 +93,25 @@ builder.Services.AddAuthorization(opts => opts.AddMcpPolicies());
 // tool class discovered by WithToolsFromAssembly().
 builder.Services.AddHttpContextAccessor();
 
+// --------------------------------------------------------------------------
+// CORS for dev tooling. The MCP Inspector (localhost:6274) is a browser app
+// hitting this server from a different origin; without CORS the browser
+// blocks the preflight and requests never reach any middleware. Restricted
+// to loopback in dev; production doesn't run the Inspector so this is off.
+// --------------------------------------------------------------------------
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("McpDev", policy =>
+        policy.SetIsOriginAllowed(origin =>
+            {
+                var uri = new Uri(origin);
+                return uri.Host is "localhost" or "127.0.0.1";
+            })
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .WithExposedHeaders("mcp-session-id"));
+});
+
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -106,6 +126,13 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapControllers();
+
+// CORS must run before the auth/MCP pipeline so preflight OPTIONS requests
+// from browser-based tooling get a 200 with the right headers.
+if (app.Environment.IsDevelopment())
+{
+    app.UseCors("McpDev");
+}
 
 // Prometheus scrape endpoint + per-request HTTP metrics. Kept identical to
 // the other services so the existing Grafana dashboards need no changes.
