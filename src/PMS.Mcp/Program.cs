@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using StackExchange.Redis;
 using PatientFlow.Mcp.Data;
 using PatientFlow.Mcp.Auth;
+using PatientFlow.Mcp.Audit;
 using Microsoft.AspNetCore.Authentication;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -59,6 +60,15 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
         ?? throw new InvalidOperationException("RedisConnection not configured")));
 
 builder.Services.AddSingleton<McpReadRepository>();
+
+// --------------------------------------------------------------------------
+// HIPAA-style audit trail. AuditLogger is a singleton because it holds no
+// per-request state — it just forwards to a Serilog logger tagged with
+// SourceContext="MCP.Audit" so the entries can be filtered separately in
+// Loki/Grafana. Individual tools call it after each invocation; the middleware
+// below adds a request-scoped safety net.
+// --------------------------------------------------------------------------
+builder.Services.AddSingleton<AuditLogger>();
 
 // --------------------------------------------------------------------------
 // API key authentication.
@@ -147,6 +157,10 @@ app.MapHealthChecks("/health");
 // scrapes still work.
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Audit middleware sits after auth so HttpContext.User.Identity.Name is
+// populated by the time we record the entry.
+app.UseMiddleware<McpAuditMiddleware>();
 
 // MCP protocol endpoints. By default this exposes:
 //   POST /            - JSON-RPC requests

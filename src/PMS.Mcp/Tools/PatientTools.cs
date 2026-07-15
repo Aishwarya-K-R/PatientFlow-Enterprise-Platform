@@ -1,5 +1,7 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using ModelContextProtocol.Server;
+using PatientFlow.Mcp.Audit;
 using PatientFlow.Mcp.Data;
 using PatientFlow.Mcp.Models;
 
@@ -23,15 +25,18 @@ public sealed class PatientTools
 {
     private readonly McpReadRepository _repo;
     private readonly IHttpContextAccessor _httpContext;
+    private readonly AuditLogger _audit;
     private readonly ILogger<PatientTools> _logger;
 
     public PatientTools(
         McpReadRepository repo,
         IHttpContextAccessor httpContext,
+        AuditLogger audit,
         ILogger<PatientTools> logger)
     {
         _repo = repo;
         _httpContext = httpContext;
+        _audit = audit;
         _logger = logger;
     }
 
@@ -47,11 +52,18 @@ public sealed class PatientTools
         CancellationToken ct = default)
     {
         var take = Math.Clamp(limit ?? 10, 1, 50);
+        var sw = Stopwatch.StartNew();
         var results = await _repo.SearchPatientsAsync(query, take, ct);
+        sw.Stop();
 
-        _logger.LogInformation(
-            "MCP tool search_patients called by {Agent}: query={Query} limit={Limit} results={Count}",
-            AgentName(), query, take, results.Count);
+        _audit.Write(new AuditEntry(
+            AgentName: AgentName(),
+            ToolName: "search_patients",
+            InputSummary: $"query='{query}' limit={take}",
+            ResultCount: results.Count,
+            DurationMs: sw.ElapsedMilliseconds,
+            Timestamp: DateTime.UtcNow,
+            ClientIp: ClientIp()));
 
         return results;
     }
@@ -63,12 +75,19 @@ public sealed class PatientTools
         [Description("Patient ID.")] int id,
         CancellationToken ct = default)
     {
+        var sw = Stopwatch.StartNew();
         var patient = await _repo.GetPatientAsync(id, ct);
         var billing = await _repo.GetBillingForPatientAsync(id, ct);
+        sw.Stop();
 
-        _logger.LogInformation(
-            "MCP tool get_patient called by {Agent}: id={Id} found={Found} billing={HasBilling}",
-            AgentName(), id, patient is not null, billing is not null);
+        _audit.Write(new AuditEntry(
+            AgentName: AgentName(),
+            ToolName: "get_patient",
+            InputSummary: $"id={id}",
+            ResultCount: patient is null ? 0 : 1,
+            DurationMs: sw.ElapsedMilliseconds,
+            Timestamp: DateTime.UtcNow,
+            ClientIp: ClientIp()));
 
         if (patient is null)
         {
@@ -80,6 +99,9 @@ public sealed class PatientTools
 
     private string AgentName() =>
         _httpContext.HttpContext?.User?.Identity?.Name ?? "unknown";
+
+    private string ClientIp() =>
+        _httpContext.HttpContext?.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 }
 
 /// <summary>

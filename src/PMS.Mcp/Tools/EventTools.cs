@@ -1,5 +1,7 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using ModelContextProtocol.Server;
+using PatientFlow.Mcp.Audit;
 using PatientFlow.Mcp.Data;
 using PatientFlow.Mcp.Models;
 
@@ -15,15 +17,18 @@ public sealed class EventTools
 {
     private readonly McpReadRepository _repo;
     private readonly IHttpContextAccessor _httpContext;
+    private readonly AuditLogger _audit;
     private readonly ILogger<EventTools> _logger;
 
     public EventTools(
         McpReadRepository repo,
         IHttpContextAccessor httpContext,
+        AuditLogger audit,
         ILogger<EventTools> logger)
     {
         _repo = repo;
         _httpContext = httpContext;
+        _audit = audit;
         _logger = logger;
     }
 
@@ -39,11 +44,18 @@ public sealed class EventTools
         CancellationToken ct = default)
     {
         var take = Math.Clamp(limit ?? 20, 1, 100);
+        var sw = Stopwatch.StartNew();
         var events = await _repo.GetRecentEventsAsync(take, ct);
+        sw.Stop();
 
-        _logger.LogInformation(
-            "MCP tool list_recent_events called by {Agent}: limit={Limit} results={Count}",
-            _httpContext.HttpContext?.User?.Identity?.Name ?? "unknown", take, events.Count);
+        _audit.Write(new AuditEntry(
+            AgentName: _httpContext.HttpContext?.User?.Identity?.Name ?? "unknown",
+            ToolName: "list_recent_events",
+            InputSummary: $"limit={take}",
+            ResultCount: events.Count,
+            DurationMs: sw.ElapsedMilliseconds,
+            Timestamp: DateTime.UtcNow,
+            ClientIp: _httpContext.HttpContext?.Connection.RemoteIpAddress?.ToString() ?? "unknown"));
 
         // Reproject to the tool-facing shape: never surface raw payload JSON to
         // the LLM (it may contain PHI). PayloadPreview from the repository is
