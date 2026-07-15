@@ -42,3 +42,8 @@ jobs:
         run: |
           docker build -t aishwaryakr/api-gateway:latest -f src/PMS.Gateway/Dockerfile .
           docker push aishwaryakr/api-gateway:latest
+
+      - name: Build & Push MCP Service
+        run: |
+          docker build -t aishwaryakr/mcp-service:latest -f src/PMS.Mcp/Dockerfile .
+          docker push aishwaryakr/mcp-service:latest

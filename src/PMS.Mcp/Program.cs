@@ -1,0 +1,171 @@
+using Serilog;
+using Prometheus;
+using ModelContextProtocol.Server;
+using Microsoft.EntityFrameworkCore;
+using StackExchange.Redis;
+using PatientFlow.Mcp.Data;
+using PatientFlow.Mcp.Auth;
+using PatientFlow.Mcp.Audit;
+using Microsoft.AspNetCore.Authentication;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Configuration
+    .AddJsonFile("appsettings.json", optional: false)
+    .AddEnvironmentVariables();
+
+// --------------------------------------------------------------------------
+// Structured logging (Serilog + Loki) - same shape as every other service so
+// the observability dashboards from Phase 6 work out of the box.
+// --------------------------------------------------------------------------
+builder.Host.UseSerilog((context, config) =>
+    config.ReadFrom.Configuration(context.Configuration));
+
+// --------------------------------------------------------------------------
+// MCP server registration.
+//
+// AddMcpServer() registers the core IMcpServer + all glue services.
+// WithHttpTransport() opts into the HTTP + SSE transport (as opposed to the
+// stdio transport used by locally-launched MCP servers). This is what makes
+// the server reachable from remote clients through the Gateway.
+//
+// Tools/resources/prompts are attribute-discovered from the assembly; in this
+// step we intentionally register nothing so the server starts empty and Step 2
+// can add the first tool without touching Program.cs.
+// --------------------------------------------------------------------------
+builder.Services
+    .AddMcpServer()
+    .WithHttpTransport()
+    .WithToolsFromAssembly()
+    .WithResourcesFromAssembly();
+
+// --------------------------------------------------------------------------
+// Read-only data access.
+//
+// Both DbContexts are registered as *factories* rather than scoped contexts
+// because MCP tool invocations are inherently concurrent (SSE + JSON-RPC
+// can dispatch multiple tool calls in parallel). A shared scoped context
+// isn't thread-safe; a factory hands each tool call its own short-lived
+// context. AsNoTracking is enforced globally inside the contexts.
+// --------------------------------------------------------------------------
+builder.Services.AddDbContextFactory<McpPatientDbContext>(opt =>
+    opt.UseNpgsql(builder.Configuration.GetConnectionString("PatientConnection")));
+
+builder.Services.AddDbContextFactory<McpBillingDbContext>(opt =>
+    opt.UseNpgsql(builder.Configuration.GetConnectionString("BillingConnection")));
+
+builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
+    ConnectionMultiplexer.Connect(
+        builder.Configuration.GetConnectionString("RedisConnection")
+        ?? throw new InvalidOperationException("RedisConnection not configured")));
+
+builder.Services.AddSingleton<McpReadRepository>();
+
+// --------------------------------------------------------------------------
+// HIPAA-style audit trail. AuditLogger is a singleton because it holds no
+// per-request state — it just forwards to a Serilog logger tagged with
+// SourceContext="MCP.Audit" so the entries can be filtered separately in
+// Loki/Grafana. Individual tools call it after each invocation; the middleware
+// below adds a request-scoped safety net.
+// --------------------------------------------------------------------------
+builder.Services.AddSingleton<AuditLogger>();
+
+// --------------------------------------------------------------------------
+// API key authentication.
+//
+// Every MCP client (Claude Desktop, Claude Code, Copilot, custom agent) must
+// present its own X-Api-Key header. Per-agent keys give us:
+//   - attribution: every tool call is logged with the agent name
+//   - revocation: rotate a single agent's key without disturbing others
+//   - future scoping: today all keys carry mcp:read; write-capable keys can
+//     be added without touching the handler
+//
+// The "ApiKeys" config section is a flat key -> agent-name map, so we bind
+// directly into the Keys dictionary rather than requiring an extra nesting
+// level in appsettings.
+// --------------------------------------------------------------------------
+builder.Services.Configure<ApiKeyAuthOptions>(opts =>
+{
+    var section = builder.Configuration.GetSection(ApiKeyAuthOptions.SectionName);
+    opts.Keys = section.Get<Dictionary<string, string>>() ?? new();
+});
+
+builder.Services
+    .AddAuthentication(ApiKeyAuthHandler.SchemeName)
+    .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthHandler>(
+        ApiKeyAuthHandler.SchemeName, _ => { });
+
+builder.Services.AddAuthorization(opts => opts.AddMcpPolicies());
+
+// Tools use IHttpContextAccessor to attribute each call to the authenticated
+// agent (HttpContext.User.Identity.Name). Registered as a singleton by ASP.NET
+// but declared explicitly here for clarity — it's a hard dependency of every
+// tool class discovered by WithToolsFromAssembly().
+builder.Services.AddHttpContextAccessor();
+
+// --------------------------------------------------------------------------
+// CORS for dev tooling. The MCP Inspector (localhost:6274) is a browser app
+// hitting this server from a different origin; without CORS the browser
+// blocks the preflight and requests never reach any middleware. Restricted
+// to loopback in dev; production doesn't run the Inspector so this is off.
+// --------------------------------------------------------------------------
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("McpDev", policy =>
+        policy.SetIsOriginAllowed(origin =>
+            {
+                var uri = new Uri(origin);
+                return uri.Host is "localhost" or "127.0.0.1";
+            })
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .WithExposedHeaders("mcp-session-id"));
+});
+
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+builder.Services.AddHealthChecks();
+
+var app = builder.Build();
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+app.MapControllers();
+
+// CORS must run before the auth/MCP pipeline so preflight OPTIONS requests
+// from browser-based tooling get a 200 with the right headers.
+if (app.Environment.IsDevelopment())
+{
+    app.UseCors("McpDev");
+}
+
+// Prometheus scrape endpoint + per-request HTTP metrics. Kept identical to
+// the other services so the existing Grafana dashboards need no changes.
+app.UseHttpMetrics();
+app.MapMetrics();
+
+app.MapHealthChecks("/health");
+
+// Auth pipeline sits before MapMcp so tool invocations are gated. Health and
+// metrics endpoints are already mapped above and don't require the policy;
+// the API key scheme returns NoResult when no header is present, so anonymous
+// scrapes still work.
+app.UseAuthentication();
+app.UseAuthorization();
+
+// Audit middleware sits after auth so HttpContext.User.Identity.Name is
+// populated by the time we record the entry.
+app.UseMiddleware<McpAuditMiddleware>();
+
+// MCP protocol endpoints. By default this exposes:
+//   POST /            - JSON-RPC requests
+//   GET  /sse         - Server-Sent Events channel for streamed responses
+// Clients like Claude Desktop and GitHub Copilot know how to speak this.
+app.MapMcp().RequireAuthorization(McpAuthorizationPolicy.RequireMcpRead);
+
+app.Run();

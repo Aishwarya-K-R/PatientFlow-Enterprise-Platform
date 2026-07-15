@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+	<TargetFramework>net8.0</TargetFramework>
+	<Nullable>enable</Nullable>
+	<ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+	<ProjectReference Include="..\PMS.Contracts\PMS.Contracts.csproj" />
+	<ProjectReference Include="..\PMS.Common\PMS.Common.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+	<!-- Official C# MCP SDK from Anthropic. `ModelContextProtocol` is the
+		 core library (protocol types + IMcpServer); `ModelContextProtocol.AspNetCore`
+		 wires it into Kestrel/ASP.NET Core so we can expose the server over
+		 HTTP + Server-Sent Events (SSE), which is the transport MCP clients
+		 like Claude Desktop / Copilot use for remote servers. -->
+	<PackageReference Include="ModelContextProtocol" Version="1.4.1" />
+	<PackageReference Include="ModelContextProtocol.AspNetCore" Version="1.4.1" />
+
+	<!-- Read-only queries into the Patient and Billing databases. Same
+		 provider + version the other services use so migrations / npgsql
+		 behaviour stay consistent. -->
+	<PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.8" />
+	<PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.8" />
+
+	<!-- Redis is where AI cache-warmed pseudonymised patient context lives;
+		 reading it lets MCP tools return LLM-ready summaries without a DB hit. -->
+	<PackageReference Include="StackExchange.Redis" Version="2.8.16" />
+	<PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="9.0.0" />
+
+	<!-- Consistency with other services: same structured logging + metrics stack.
+		 Health + Prometheus scraping is expected by the observability dashboards. -->
+	<PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
+	<PackageReference Include="prometheus-net.AspNetCore" Version="8.2.1" />
+
+	<!-- Swagger for the (small) HTTP surface outside MCP - mainly /health and
+		 any future admin endpoints. Kept for parity with the other services. -->
+	<PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.1" />
+  </ItemGroup>
+
+</Project>

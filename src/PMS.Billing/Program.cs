@@ -23,6 +23,7 @@ builder.Services.AddScoped<BillingAccountService>();
 builder.Services.AddSingleton<KafkaProducer>();
 builder.Services.AddHostedService<OutboxPublisherService>();
 builder.Services.AddHostedService<OutboxCleanupService>();
+builder.Services.AddHostedService<PatientDeletedConsumer>();
 
 builder.Host.UseSerilog((context, config) =>
     config.ReadFrom.Configuration(context.Configuration));

@@ -148,6 +148,7 @@ services:
       ReverseProxy__Clusters__auth-cluster__Destinations__auth-service__Address: http://auth-service:8080/
       ReverseProxy__Clusters__patient-cluster__Destinations__patient-service__Address: http://patient-service:8080/
       ReverseProxy__Clusters__ai-cluster__Destinations__ai-service__Address: http://ai-service:8080/
+      ReverseProxy__Clusters__mcp-cluster__Destinations__mcp-service__Address: http://mcp-service:8080/
       OpenTelemetry__OtlpEndpoint: http://tempo:4318
       Serilog__WriteTo__1__Args__uri: http://loki:3100
     networks:
@@ -260,6 +261,47 @@ services:
       PatientService__BaseUrl: http://patient-service:8080
       PatientService__InternalApiKey: ${INTERNAL_API_KEY}
       Kafka__BootstrapServers: kafka:29092
+      OpenTelemetry__OtlpEndpoint: http://tempo:4318
+      Serilog__WriteTo__1__Args__uri: http://loki:3100
+    networks:
+      - patientflow-network
+
+  # ===========================================================================
+  # MCP (Model Context Protocol) Server
+  # Exposes patient/billing/AI capabilities as MCP tools so external LLM
+  # clients (Claude Desktop, Copilot, etc.) can interact with the platform
+  # through a standardised protocol. Read-only DB access + HTTP-only calls to
+  # the other services keep the blast radius small.
+  # ===========================================================================
+  mcp-service:
+    build:
+      context: .
+      dockerfile: src/PMS.Mcp/Dockerfile
+    container_name: mcp-service
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      patient-service:
+        condition: service_started
+      billing-service:
+        condition: service_started
+      ai-service:
+        condition: service_started
+    ports:
+      - "${MCP_PORT}:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__PatientConnection: Host=postgres;Port=5432;Database=${PATIENT_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      ConnectionStrings__BillingConnection: Host=postgres;Port=5432;Database=${BILLING_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      ConnectionStrings__RedisConnection: redis:6379
+      PatientService__BaseUrl: http://patient-service:8080
+      PatientService__InternalApiKey: ${INTERNAL_API_KEY}
+      BillingService__BaseUrl: http://billing-service:8080
+      BillingService__InternalApiKey: ${INTERNAL_API_KEY}
+      AIService__BaseUrl: http://ai-service:8080
       OpenTelemetry__OtlpEndpoint: http://tempo:4318
       Serilog__WriteTo__1__Args__uri: http://loki:3100
     networks:
