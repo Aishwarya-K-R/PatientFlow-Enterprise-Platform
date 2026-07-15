@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcp-deployment
+  template:
+    metadata:
+      labels:
+        app: mcp-deployment
+    spec:
+      containers:
+        - name: mcp-deployment
+          image: aishwaryakr/mcp-service:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            # MCP needs read access to *both* patient and billing databases,
+            # so it can't share the generic DB_CONN used by single-DB services.
+            # Two dedicated secret keys keep the credentials pattern consistent
+            # with how docker-compose wires PATIENT_DB / BILLING_DB.
+            - name: ConnectionStrings__PatientConnection
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: MCP_PATIENT_DB_CONN
+            - name: ConnectionStrings__BillingConnection
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: MCP_BILLING_DB_CONN
+            - name: ConnectionStrings__RedisConnection
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: REDIS_CONN
+
+            # Per-agent API keys. The value is a JSON object serialised into a
+            # single secret entry (e.g. '{"claude-desktop-key-xyz":"ClaudeDesktop"}')
+            # which the app binds via Configuration.GetSection("ApiKeys").
+            # Kept in Secret rather than ConfigMap because the keys are
+            # bearer credentials for external agents.
+            - name: ApiKeys__ClaudeDesktop
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: MCP_APIKEY_CLAUDE_DESKTOP
+            - name: ApiKeys__ClaudeCode
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: MCP_APIKEY_CLAUDE_CODE
+
+            # Observability wiring — same pattern as every other service so
+            # the existing Grafana dashboards pick up mcp-service automatically.
+            - name: OpenTelemetry__OtlpEndpoint
+              value: "http://tempo-service:4318"
+            - name: Serilog__WriteTo__1__Args__uri
+              value: "http://loki-service:3100"
+
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Development"
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 30
