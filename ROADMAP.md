@@ -226,14 +226,21 @@ above maps them to the linear 1 ? 8 phase names used throughout this document.
 
 ---
 
-## What's next (not yet started)
+## Deliberately out of scope
 
-These were candidates that were deprioritised to keep scope tight; they'd
-be natural follow-ups if the project continues:
+The following tracks were evaluated and deferred to keep the project
+shippable on a laptop without a cloud bill. Each has a clear "why not now"
+— they're the natural next chapter, not gaps in what was built.
 
-- **Security hardening** — refresh tokens with revocation, account lockout, partitioned rate limiter, non-root containers, OWASP baseline.
+- **Security hardening** — refresh-token revocation, account lockout, partitioned rate limiter, non-root containers, OWASP baseline.
+  *Auth is functional and JWT-signed; hardening is a separate multi-week track with its own threat model.*
 - **TLS + column-level PHI encryption** — cert-manager, Kafka SASL_SSL, Postgres SSL, encrypted PHI columns.
+  *Meaningful only against a real network threat model; simulated locally by process isolation + audit trail + PHI pseudonymisation.*
 - **Real tests with Testcontainers** — per-test-class isolated Postgres/Redis/Kafka, coverage threshold enforced in CI, k6 smoke load test.
+  *Current tests cover unit + service logic; full integration matrix is a dedicated infrastructure investment.*
 - **Kubernetes hardening** — Helm/Kustomize, HPA + PDB, NetworkPolicies, CloudNativePG operator, Strimzi Kafka, EF migrations as pre-deploy Job.
+  *Raw manifests deploy cleanly to Minikube/kind; operators and autoscaling matter only under real multi-tenant load.*
 - **CI/CD productionisation** — Trivy scans, SBOM, Cosign signing, semver tags, GitOps via ArgoCD, Sealed Secrets / SOPS.
+  *Docker Hub push pipeline is working; supply-chain security is a distinct compliance workstream.*
 - **Compliance polish** — threat model, ADRs, runbooks, HIPAA control mapping, DR drill with documented RPO/RTO.
+  *The platform is HIPAA-*aware* (audit, PHI redaction, per-agent auth); formal HIPAA certification requires an auditor, not more code.*
