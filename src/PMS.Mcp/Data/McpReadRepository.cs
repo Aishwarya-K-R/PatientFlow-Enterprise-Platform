@@ -76,6 +76,28 @@ public sealed class McpReadRepository
         return rows.Select(ToSummary).ToList();
     }
 
+    /// <summary>
+    /// Aggregate patient counts computed directly in Postgres — safe for any
+    /// row count. Uses four CountAsync calls (single round-trip each) rather
+    /// than pulling rows client-side, so it stays O(1) memory as the table grows.
+    /// </summary>
+    public async Task<PatientsSummaryCounts> GetPatientsSummaryAsync(
+        DateOnly today,
+        DateOnly weekStart,
+        DateOnly monthStart,
+        CancellationToken ct = default)
+    {
+        await using var db = await _patientFactory.CreateDbContextAsync(ct);
+        var patients = db.Patients.AsNoTracking();
+
+        var total = await patients.CountAsync(ct);
+        var registeredToday = await patients.CountAsync(p => p.RegisteredDate == today, ct);
+        var registeredThisWeek = await patients.CountAsync(p => p.RegisteredDate >= weekStart, ct);
+        var registeredThisMonth = await patients.CountAsync(p => p.RegisteredDate >= monthStart, ct);
+
+        return new PatientsSummaryCounts(total, registeredToday, registeredThisWeek, registeredThisMonth);
+    }
+
     // -----------------------------------------------------------------
     // Billing
     // -----------------------------------------------------------------

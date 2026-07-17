@@ -12,3 +12,14 @@ public sealed record PatientSummary(
     string Email,
     DateOnly RegisteredDate,
     int Age);
+
+/// <summary>
+/// Aggregate counts for the <c>patients/summary</c> resource. Computed
+/// server-side via CountAsync so the result stays correct regardless of
+/// how many patients exist in the table.
+/// </summary>
+public sealed record PatientsSummaryCounts(
+    int Total,
+    int RegisteredToday,
+    int RegisteredThisWeek,
+    int RegisteredThisMonth);

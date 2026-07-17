@@ -32,21 +32,25 @@ public sealed class PatientResources
         "Aggregate patient statistics: total count, registrations today, this week, this month.")]
     public async Task<string> GetPatientsSummaryAsync(CancellationToken ct = default)
     {
-        // For the aggregate we scan a large search page rather than adding a
-        // count-specific repo method; still O(1) round-trips, and the search
-        // pipeline already applies AsNoTracking + the same read boundary.
-        var all = await _repo.SearchPatientsAsync(null, take: 100, ct);
-
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var weekStart = today.AddDays(-(int)today.DayOfWeek);
+
+        // ISO-style week: Monday as the first day. DayOfWeek.Sunday == 0, so
+        // (int)Sunday - 1 = -1 which would push weekStart INTO the future;
+        // treat Sunday as day 7 to keep the same-week semantics users expect.
+        var dow = (int)today.DayOfWeek;
+        if (dow == 0) dow = 7;
+        var weekStart = today.AddDays(-(dow - 1));
+
         var monthStart = new DateOnly(today.Year, today.Month, 1);
+
+        var counts = await _repo.GetPatientsSummaryAsync(today, weekStart, monthStart, ct);
 
         var payload = new
         {
-            total = all.Count,
-            registeredToday = all.Count(p => p.RegisteredDate == today),
-            registeredThisWeek = all.Count(p => p.RegisteredDate >= weekStart),
-            registeredThisMonth = all.Count(p => p.RegisteredDate >= monthStart),
+            total = counts.Total,
+            registeredToday = counts.RegisteredToday,
+            registeredThisWeek = counts.RegisteredThisWeek,
+            registeredThisMonth = counts.RegisteredThisMonth,
             asOf = DateTime.UtcNow
         };
 
