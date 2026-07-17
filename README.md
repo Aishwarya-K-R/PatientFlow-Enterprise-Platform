@@ -227,7 +227,7 @@ docker-compose up --build
 | Health check | http://localhost:5000/health |
 | AI chatbot (`POST /ai/ask`) | http://localhost:5000/ai/ask |
 | MCP endpoint (for Claude Desktop et al.) | http://localhost:5000/mcp |
-| Kafka UI | http://localhost:8080 |
+| Kafka UI | http://localhost:8082 |
 | Prometheus | http://localhost:9090 |
 | Grafana (admin/admin) | http://localhost:3000 |
 
@@ -291,29 +291,47 @@ Recommended: cloud K8s (AKS/EKS/GKE) or a beefy Minikube (`--memory=8192 --cpus=
 
 ## 📊 In action
 
-### Event streaming (Kafka UI)
+### 🔐 HIPAA-style audit trail in Grafana (Phase 8)
+
+Every MCP tool call — successful or failed — lands in Loki under `SourceContext="MCP.Audit"`, isolated from operational logs but sharing the same query surface.
 
 <p align="center">
-  <img width="800" alt="Patient Service — Kafka UI showing patient-created / patient-updated / patient-deleted topic events" src="https://github.com/user-attachments/assets/f73bba52-fef0-4efa-857f-7ef2410a28ec" />
+  <img width="850" alt="Grafana Explore showing MCP audit lines with Agent, Action, Target, DurationMs and Success fields" src="./docs/screenshots/grafana-mcp-audit.png" />
 </p>
+
+### 🕸️ Distributed tracing across services (Phase 6)
+
+One click on a slow request in Grafana → follow the trace end-to-end through gateway, services, Kafka, and downstreams. TraceId + SpanId are stitched into every log line via OpenTelemetry + Serilog enrichment.
 
 <p align="center">
-  <img width="800" alt="Billing Service — billing-created events published in response to patient-created" src="https://github.com/user-attachments/assets/60e5041c-5839-439e-b83e-db15a614e457" />
+  <img width="850" alt="Tempo trace waterfall spanning gateway, patient service, Kafka producer and downstream consumer" src="./docs/screenshots/grafana-tempo-trace.png" />
 </p>
+
+### 📈 Custom business dashboards (Phase 6)
+
+Dashboards-as-code checked into `observability/grafana/dashboards/` — request rate, latency percentiles, LLM latency, cache hit ratio, and business counters like `patients_created_total`.
 
 <p align="center">
-  <img width="800" alt="AI Service — consuming patient and billing topics to refresh Redis + pgvector for RAG" src="https://github.com/user-attachments/assets/27324373-23ab-4366-a565-1e8eebbb57f3" />
+  <img width="850" alt="Custom Grafana dashboard for PatientFlow — request rate, latency, error rate, and business metric panels" src="./docs/screenshots/grafana-custom-dashboard.png" />
 </p>
 
-### Metrics & dashboards
+### 🤖 Claude Desktop consuming the MCP server (Phase 8)
 
-<p align="center">
-  <img width="800" alt="Prometheus targets dashboard — all microservices reporting UP" src="https://github.com/user-attachments/assets/cc54c279-6d43-42c8-af33-5c21153f7fb4" />
-</p>
+After the config change, Claude Desktop discovers **4 tools + 3 resources + 1 template** exposed by `PMS.Mcp` and can query patient / billing / event data through the gateway using a scoped API key.
 
 <p align="center">
-  <img width="800" alt="Grafana dashboard — PatientFlow microservices request rate, latency, and error rate" src="https://github.com/user-attachments/assets/2c53866d-f42f-4b51-8399-1974b614ce09" />
+  <img width="850" alt="Claude Desktop showing PatientFlow MCP server connected with tools and resources listed" src="./docs/screenshots/claude-desktop-tools.png" />
 </p>
+
+### 📮 Kafka topology with retry topics + DLQ (Phase 4)
+
+Hardened event pipeline: main topics for domain events (`patient-created`, `billing-created`, ...), retry topics for transient failures with exponential backoff, and dedicated DLQs for poison messages after 3 failed attempts.
+
+<p align="center">
+  <img width="850" alt="Kafka UI showing patient / billing main topics alongside their -retry and -dlq companions" src="./docs/screenshots/kafka-retry-dlq.png" />
+</p>
+
+> 📸 **[More screenshots →](./docs/screenshots/)**
 
 ---
 
