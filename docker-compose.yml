@@ -63,6 +63,20 @@ services:
     networks:
       - patientflow-network
 
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8082:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: patientflow
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+    depends_on:
+      - kafka
+    restart: unless-stopped
+    networks:
+      - patientflow-network
+
   # ===========================================================================
   # Ollama - LLM + embedding runtime, in-cluster (Phase 10 Step 5)
   #
